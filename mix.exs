@@ -1,13 +1,19 @@
 defmodule TwitchAPI.MixProject do
   use Mix.Project
 
+  @repo_url "https://github.com/hellostream/twitch_api"
+
   def project do
     [
       app: :hello_twitch_api,
       version: "0.1.0",
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      description: description(),
+      package: package(),
+      source_url: @repo_url,
+      homepage_url: @repo_url
     ]
   end
 
@@ -22,6 +28,17 @@ defmodule TwitchAPI.MixProject do
   defp deps do
     [
       {:req, "~> 0.4.11"}
+    ]
+  end
+
+  defp description do
+    "Twitch API library"
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{"GitHub" => @repo_url}
     ]
   end
 end
