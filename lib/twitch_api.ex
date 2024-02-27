@@ -14,7 +14,7 @@ defmodule TwitchAPI do
   @base_url "https://api.twitch.tv/helix"
 
   @doc """
-  Build a base `t:Req.Request/0` for Twitch API requests.
+  Build a base `t:Req.Request.t/0` for Twitch API requests.
   """
   @spec client(Auth.t()) :: Req.Request.t()
   def client(%Auth{} = auth) do
@@ -45,6 +45,19 @@ defmodule TwitchAPI do
         Logger.error("[TwitchAPI] error making request: #{inspect(error)}")
         {:error, error}
     end
+  end
+
+  # ----------------------------------------------------------------------------
+  # Auth/Tokens
+  # ----------------------------------------------------------------------------
+
+  @doc """
+  Revoke an access token.
+  """
+  @spec revoke_token!(Auth.t()) :: Req.Response.t()
+  def revoke_token!(auth) do
+    params = [client_id: auth.client_id, token: auth.token]
+    Req.post!("https://id.twitch.tv/oauth2/revoke", form: params)
   end
 
   # ----------------------------------------------------------------------------
