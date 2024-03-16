@@ -104,22 +104,19 @@ defmodule TwitchAPI do
      token may include any scopes.
 
   """
-  @spec create_eventsub_websocket_subscription(
+  @spec create_eventsub_subscription(
           Auth.t(),
-          session_id :: String.t(),
           type :: String.t(),
           version :: String.t(),
+          transport :: map(),
           condition :: map()
         ) :: response()
-  def create_eventsub_websocket_subscription(auth, session_id, type, version, condition) do
+  def create_eventsub_subscription(auth, type, version, transport, condition) do
     params = %{
       "type" => type,
       "version" => version,
       "condition" => condition,
-      "transport" => %{
-        "method" => "websocket",
-        "session_id" => session_id
-      }
+      "transport" => transport
     }
 
     client(auth)
