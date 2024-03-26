@@ -37,22 +37,24 @@ defmodule TwitchAPI do
   @doc """
   Make a Twitch API POST request with JSON body.
   """
-  @spec post(Auth.t(), String.t(), 200..599) :: {:ok, Req.Response.t()} | {:error, term()}
-  def post(auth, url, params, success_code \\ 200) do
+  @spec post(Auth.t(), String.t(), keyword(), 200..599) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  def post(auth, url, opts \\ [], success_code \\ 200) do
     auth
     |> client()
-    |> Req.post(url: url, json: params)
+    |> Req.post([{:url, url} | opts])
     |> handle_response(success_code)
   end
 
   @doc """
   Make a Twitch API PATCH request with JSON body.
   """
-  @spec patch(Auth.t(), String.t(), 200..599) :: {:ok, Req.Response.t()} | {:error, term()}
-  def patch(auth, url, params, success_code \\ 200) do
+  @spec patch(Auth.t(), String.t(), keyword(), 200..599) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  def patch(auth, url, opts \\ [], success_code \\ 200) do
     auth
     |> client()
-    |> Req.post(url: url, json: params)
+    |> Req.patch([{:url, url} | opts])
     |> handle_response(success_code)
   end
 
