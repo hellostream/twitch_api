@@ -1,6 +1,25 @@
 defmodule TwitchAPI do
   @moduledoc """
   Twitch API.
+
+  You can make requests to Twitch API endpoints.
+
+  ## Examples
+
+  ```elixir
+    client_id = "asdsdksdl93roi39"
+    access_token = "09wriujr329jd023920dk203kd0932d"
+
+    auth = TwitchAPI.Auth.new(client_id, access_token)
+
+    case TwitchAPI.get(auth, "/users") do
+      {:ok, %{body: users}} ->
+        IO.inspect(users, label: "Successful response body")
+
+      {:error, resp} ->
+        IO.inspect(resp, label: "We got an error")
+    end
+  ```
   """
 
   alias TwitchAPI.Auth
@@ -29,7 +48,10 @@ defmodule TwitchAPI do
 
   # Metaprogramming to generate all the request method functions.
   # Look, I'm one person and have a lot to do, okay?
-  # If you don't like it, go use Gleam or something.
+  # If you don't like it, go use Gleam or something. ᕕ( ᐛ )ᕗ
+  #                    ,-.-.
+  #                    `. ,'
+  #                      `
 
   request_methods = [:get, :post, :put, :patch, :delete, :head]
 
