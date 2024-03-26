@@ -9,12 +9,16 @@ defmodule TwitchAPI do
 
   @type body_params :: map() | keyword()
 
-  @type body_resp :: String.t() | map() | nil
-
   @base_url "https://api.twitch.tv/helix"
 
   @doc """
   Build a base `t:Req.Request.t/0` for Twitch API requests.
+
+  You can pass either this or a `t:TwitchAPI.Auth.t/0` struct to the
+  request functions.
+
+  NOTE: You probably only want to use this directly if you want to do something
+  different than the default.
   """
   @spec client(Auth.t()) :: Req.Request.t()
   def client(%Auth{} = auth) do
@@ -23,74 +27,74 @@ defmodule TwitchAPI do
     Req.new(base_url: @base_url, headers: headers, auth: auth)
   end
 
-  @doc """
-  Make a Twitch API GET request.
+  # Metaprogramming to generate all the request method functions.
+  # Look, I'm one person and have a lot to do, okay?
+  # If you don't like it, go use Gleam or something.
 
-  ## Examples
+  request_methods = [:get, :post, :put, :patch, :delete, :head]
 
-      iex> get(auth, "/users", params)
-      {:ok, %{"data" => []}}
+  for method <- request_methods do
+    method_upcase = to_string(method) |> String.upcase()
+    method! = :"#{method}!"
 
-  """
-  @spec get(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
-  def get(%Auth{} = auth, url, opts \\ []) do
-    {success_code, opts} = Keyword.pop(opts, :success, 200)
+    @doc """
+    Make a Twitch API #{method_upcase} request.
+    Returns `:ok` or `:error` tuples.
+    """
+    @spec unquote(method)(
+            auth_or_client :: Auth.t() | Req.Request.t(),
+            url :: String.t(),
+            opts :: keyword()
+          ) ::
+            {:ok, Req.Response.t()} | {:error, term()}
+    def unquote(method)(auth_or_client, url, opts \\ [])
 
-    auth
-    |> client()
-    |> Req.get([{:url, url} | opts])
-    |> handle_response(success_code)
+    def unquote(method)(%Auth{} = auth, url, opts) do
+      unquote(method)(client(auth), url, opts)
+    end
+
+    def unquote(method)(%Req.Request{} = client, url, opts) do
+      {success_code, opts} = Keyword.pop(opts, :success, 200)
+
+      client
+      |> Req.unquote(method)([{:url, url} | opts])
+      |> handle_response(success_code)
+    end
+
+    @doc """
+    Make a Twitch API #{method_upcase} request.
+    Raises on error or unexpected HTTP status.
+    """
+    @spec unquote(method!)(
+            auth_or_client :: Auth.t() | Req.Request.t(),
+            url :: String.t(),
+            opts :: keyword()
+          ) :: Req.Response.t()
+    def unquote(method!)(auth_or_client, url, opts \\ [])
+
+    def unquote(method!)(%Auth{} = auth, url, opts) do
+      unquote(method!)(client(auth), url, opts)
+    end
+
+    def unquote(method!)(%Req.Request{} = client, url, opts) do
+      {success_code, opts} = Keyword.pop(opts, :success, 200)
+
+      client
+      |> Req.unquote(method!)([{:url, url} | opts])
+      |> handle_response!(success_code)
+    end
   end
 
-  @doc """
-  Make a Twitch API POST request with JSON body.
-  """
-  @spec post(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
-  def post(%Auth{} = auth, url, opts \\ []) do
-    {success_code, opts} = Keyword.pop(opts, :success, 200)
-
-    auth
-    |> client()
-    |> Req.post([{:url, url} | opts])
-    |> handle_response(success_code)
-  end
-
-  @doc """
-  Make a Twitch API PATCH request with JSON body.
-  """
-  @spec patch(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
-  def patch(%Auth{} = auth, url, opts \\ []) do
-    {success_code, opts} = Keyword.pop(opts, :success, 200)
-
-    auth
-    |> client()
-    |> Req.patch([{:url, url} | opts])
-    |> handle_response(success_code)
-  end
-
-  @doc """
-  Make a Twitch API PATCH request with JSON body.
-  """
-  @spec delete(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
-  def delete(%Auth{} = auth, url, opts \\ []) do
-    {success_code, opts} = Keyword.pop(opts, :success, 200)
-
-    auth
-    |> client()
-    |> Req.delete([{:url, url} | opts])
-    |> handle_response(success_code)
-  end
-
-  @doc """
-  Handle the result of a request to Twitch.
-  """
-  @spec handle_response({:ok, Req.Response.t()} | {:error, term()}, pos_integer()) ::
-          {:ok, body_resp()} | {:error, term()}
-  def handle_response(resp, expected_status \\ 200) do
+  @spec handle_response(
+          {:ok, Req.Response.t()} | {:error, Req.Response.t() | term()},
+          pos_integer()
+        ) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  defp handle_response(resp, expected_status) do
     case resp do
-      {:ok, %{status: ^expected_status, headers: _headers, body: body}} ->
-        Logger.debug("[TwitchAPI] success:\n#{inspect(body)}")
-        {:ok, body}
+      {:ok, %{status: ^expected_status} = resp} ->
+        Logger.debug("[TwitchAPI] success #{expected_status}")
+        {:ok, resp}
 
       {:ok, %{status: 429, headers: %{"ratelimit-reset" => resets_at}}} ->
         Logger.warning("[TwitchAPI] rate-limited; resets at #{resets_at}")
@@ -106,88 +110,18 @@ defmodule TwitchAPI do
     end
   end
 
-  # ----------------------------------------------------------------------------
-  # Custom Rewards
-  # ----------------------------------------------------------------------------
+  @spec handle_response!(Req.Response.t(), pos_integer()) :: Req.Response.t()
+  defp handle_response!(resp, expected_status) do
+    case resp do
+      %{status: ^expected_status} = resp ->
+        Logger.debug("[TwitchAPI] success #{expected_status}")
+        resp
 
-  @doc """
-  Update Custom Reward
-  https://dev.twitch.tv/docs/api/reference/#update-custom-reward
+      %{status: 429, headers: %{"ratelimit-reset" => resets_at}} ->
+        raise "rate limited: resets at #{resets_at}"
 
-  ## Authorization
-
-   * Requires user access token with `channel:manage:redemptions` scope.
-
-  """
-  @spec update_custom_reward(
-          Auth.t(),
-          broadcaster_id :: String.t(),
-          reward_id :: String.t(),
-          body_params()
-        ) :: {:ok, body_resp()} | {:error, term()}
-  def update_custom_reward(auth, broadcaster_id, reward_id, fields) do
-    query = [broadcaster_id: broadcaster_id, id: reward_id]
-
-    client(auth)
-    |> Req.patch(url: "/channel_points/custom_rewards", query: query, json: fields)
-    |> handle_response()
-  end
-
-  # ----------------------------------------------------------------------------
-  # EventSub Subscriptions
-  # ----------------------------------------------------------------------------
-
-  @doc """
-  Create an eventsub subscription using.
-  https://dev.twitch.tv/docs/api/reference/#create-eventsub-subscription
-
-  ## Authorization
-
-   * If you use webhooks to receive events, the request must specify an app
-     access token. The request will fail if you use a user access token.
-   * If you use WebSockets to receive events, the request must specify a user
-     access token. The request will fail if you use an app access token. The
-     token may include any scopes.
-
-  """
-  @spec create_eventsub_subscription(
-          Auth.t(),
-          type :: String.t(),
-          version :: String.t(),
-          transport :: map(),
-          condition :: map()
-        ) :: {:ok, body_resp()} | {:error, term()}
-  def create_eventsub_subscription(auth, type, version, transport, condition) do
-    params = %{
-      "type" => type,
-      "version" => version,
-      "condition" => condition,
-      "transport" => transport
-    }
-
-    client(auth)
-    |> Req.post(url: "/eventsub/subscriptions", json: params)
-    |> handle_response(202)
-  end
-
-  @doc """
-  List EventSub Subscriptions.
-  https://dev.twitch.tv/docs/api/reference/#get-eventsub-subscriptions
-
-  ## Authorization
-
-   * If you use webhooks to receive events, the request must specify an app
-     access token. The request will fail if you use a user access token.
-   * If you use WebSockets to receive events, the request must specify a user
-     access token. The request will fail if you use an app access token. The
-     token may include any scopes.
-
-  """
-  @spec list_eventsub_subscriptions(Auth.t(), body_params()) ::
-          {:ok, body_resp()} | {:error, term()}
-  def list_eventsub_subscriptions(auth, params \\ %{}) do
-    client(auth)
-    |> Req.get(url: "/eventsub/subscriptions", json: params)
-    |> handle_response()
+      %{status: status} ->
+        raise "unexpected status #{status}, expected #{expected_status}"
+    end
   end
 end
