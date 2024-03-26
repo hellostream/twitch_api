@@ -24,6 +24,39 @@ defmodule TwitchAPI do
   end
 
   @doc """
+  Make a Twitch API GET request.
+  """
+  @spec get(Auth.t(), String.t(), 200..599) :: {:ok, Req.Response.t()} | {:error, term()}
+  def get(auth, url, params, success_code \\ 200) do
+    auth
+    |> client()
+    |> Req.get(url: url, query: params)
+    |> handle_response(success_code)
+  end
+
+  @doc """
+  Make a Twitch API POST request with JSON body.
+  """
+  @spec post(Auth.t(), String.t(), 200..599) :: {:ok, Req.Response.t()} | {:error, term()}
+  def post(auth, url, params, success_code \\ 200) do
+    auth
+    |> client()
+    |> Req.post(url: url, json: params)
+    |> handle_response(success_code)
+  end
+
+  @doc """
+  Make a Twitch API PATCH request with JSON body.
+  """
+  @spec patch(Auth.t(), String.t(), 200..599) :: {:ok, Req.Response.t()} | {:error, term()}
+  def patch(auth, url, params, success_code \\ 200) do
+    auth
+    |> client()
+    |> Req.post(url: url, json: params)
+    |> handle_response(success_code)
+  end
+
+  @doc """
   Handle the result of a request to Twitch.
   """
   @spec handle_response({:ok, Req.Response.t()} | {:error, term()}, pos_integer()) :: response()
@@ -45,19 +78,6 @@ defmodule TwitchAPI do
         Logger.error("[TwitchAPI] error making request: #{inspect(error)}")
         {:error, error}
     end
-  end
-
-  # ----------------------------------------------------------------------------
-  # Auth/Tokens
-  # ----------------------------------------------------------------------------
-
-  @doc """
-  Revoke an access token.
-  """
-  @spec revoke_token!(Auth.t()) :: Req.Response.t()
-  def revoke_token!(auth) do
-    params = [client_id: auth.client_id, token: auth.token]
-    Req.post!("https://id.twitch.tv/oauth2/revoke", form: params)
   end
 
   # ----------------------------------------------------------------------------
