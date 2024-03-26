@@ -69,6 +69,19 @@ defmodule TwitchAPI do
   end
 
   @doc """
+  Make a Twitch API PATCH request with JSON body.
+  """
+  @spec delete(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
+  def delete(%Auth{} = auth, url, opts \\ []) do
+    {success_code, opts} = Keyword.pop(opts, :success, 200)
+
+    auth
+    |> client()
+    |> Req.delete([{:url, url} | opts])
+    |> handle_response(success_code)
+  end
+
+  @doc """
   Handle the result of a request to Twitch.
   """
   @spec handle_response({:ok, Req.Response.t()} | {:error, term()}, pos_integer()) ::
