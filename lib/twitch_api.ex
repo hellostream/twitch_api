@@ -9,7 +9,7 @@ defmodule TwitchAPI do
 
   @type body_params :: map() | keyword()
 
-  @type response :: {:ok, map() | String.t() | nil} | {:error, term()}
+  @type body_resp :: String.t() | map() | nil
 
   @base_url "https://api.twitch.tv/helix"
 
@@ -25,21 +25,30 @@ defmodule TwitchAPI do
 
   @doc """
   Make a Twitch API GET request.
+
+  ## Examples
+
+      iex> get(auth, "/users", params)
+      {:ok, %{"data" => []}}
+
   """
-  @spec get(Auth.t(), String.t(), 200..599) :: {:ok, Req.Response.t()} | {:error, term()}
-  def get(auth, url, params, success_code \\ 200) do
+  @spec get(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
+  def get(%Auth{} = auth, url, opts \\ []) do
+    {success_code, opts} = Keyword.pop(opts, :success, 200)
+
     auth
     |> client()
-    |> Req.get(url: url, query: params)
+    |> Req.get([{:url, url} | opts])
     |> handle_response(success_code)
   end
 
   @doc """
   Make a Twitch API POST request with JSON body.
   """
-  @spec post(Auth.t(), String.t(), keyword(), 200..599) ::
-          {:ok, Req.Response.t()} | {:error, term()}
-  def post(auth, url, opts \\ [], success_code \\ 200) do
+  @spec post(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
+  def post(%Auth{} = auth, url, opts \\ []) do
+    {success_code, opts} = Keyword.pop(opts, :success, 200)
+
     auth
     |> client()
     |> Req.post([{:url, url} | opts])
@@ -49,9 +58,10 @@ defmodule TwitchAPI do
   @doc """
   Make a Twitch API PATCH request with JSON body.
   """
-  @spec patch(Auth.t(), String.t(), keyword(), 200..599) ::
-          {:ok, Req.Response.t()} | {:error, term()}
-  def patch(auth, url, opts \\ [], success_code \\ 200) do
+  @spec patch(Auth.t(), String.t(), keyword()) :: {:ok, body_resp()} | {:error, term()}
+  def patch(%Auth{} = auth, url, opts \\ []) do
+    {success_code, opts} = Keyword.pop(opts, :success, 200)
+
     auth
     |> client()
     |> Req.patch([{:url, url} | opts])
@@ -61,7 +71,8 @@ defmodule TwitchAPI do
   @doc """
   Handle the result of a request to Twitch.
   """
-  @spec handle_response({:ok, Req.Response.t()} | {:error, term()}, pos_integer()) :: response()
+  @spec handle_response({:ok, Req.Response.t()} | {:error, term()}, pos_integer()) ::
+          {:ok, body_resp()} | {:error, term()}
   def handle_response(resp, expected_status \\ 200) do
     case resp do
       {:ok, %{status: ^expected_status, headers: _headers, body: body}} ->
@@ -100,7 +111,7 @@ defmodule TwitchAPI do
           broadcaster_id :: String.t(),
           reward_id :: String.t(),
           body_params()
-        ) :: response()
+        ) :: {:ok, body_resp()} | {:error, term()}
   def update_custom_reward(auth, broadcaster_id, reward_id, fields) do
     query = [broadcaster_id: broadcaster_id, id: reward_id]
 
@@ -132,7 +143,7 @@ defmodule TwitchAPI do
           version :: String.t(),
           transport :: map(),
           condition :: map()
-        ) :: response()
+        ) :: {:ok, body_resp()} | {:error, term()}
   def create_eventsub_subscription(auth, type, version, transport, condition) do
     params = %{
       "type" => type,
@@ -159,7 +170,8 @@ defmodule TwitchAPI do
      token may include any scopes.
 
   """
-  @spec list_eventsub_subscriptions(Auth.t(), body_params()) :: response()
+  @spec list_eventsub_subscriptions(Auth.t(), body_params()) ::
+          {:ok, body_resp()} | {:error, term()}
   def list_eventsub_subscriptions(auth, params \\ %{}) do
     client(auth)
     |> Req.get(url: "/eventsub/subscriptions", json: params)

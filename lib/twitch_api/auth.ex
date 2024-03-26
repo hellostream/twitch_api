@@ -23,8 +23,8 @@ defmodule TwitchAPI.Auth do
   Revoke an access token.
   """
   @spec revoke_token!(Auth.t()) :: Req.Response.t()
-  def revoke_token!(auth) do
-    params = [client_id: auth.client_id, token: auth.token]
+  def revoke_token!(%__MODULE__{} = auth) do
+    params = [client_id: auth.client_id, token: auth.access_token]
     Req.post!("https://id.twitch.tv/oauth2/revoke", form: params)
   end
 end
