@@ -1,33 +1,104 @@
 defmodule TwitchAPI.Auth do
   @moduledoc """
-  Auth struct.
+  Twitch API Auth (and struct).
   """
-
-  @type t :: %__MODULE__{
-          access_token: String.t() | nil,
-          client_id: String.t(),
-          client_secret: String.t() | nil,
-          refresh_token: String.t() | nil
-        }
 
   @base_url "https://id.twitch.tv"
 
-  @derive {Inspect, only: [:client_id]}
+  @type t :: %__MODULE__{
+          client_id: String.t(),
+          client_secret: String.t() | nil,
+          access_token: String.t() | nil,
+          refresh_token: String.t() | nil,
+          expires_at: DateTime.t() | nil
+        }
+
+  @derive {Inspect, only: [:client_id, :expires_at]}
   @enforce_keys [:client_id]
-  defstruct [:access_token, :client_id, :client_secret, :refresh_token]
+  defstruct [:client_id, :client_secret, :access_token, :refresh_token, :expires_at]
 
   @doc """
-  Make a new Auth struct.
+  Make a new `Auth` struct with a `client_id`.
   """
-  @spec new(client_id :: String.t(), access_token :: String.t() | nil) :: t()
-  def new(client_id, access_token \\ nil) do
-    %__MODULE__{client_id: client_id, access_token: access_token}
+  @spec new(client_id :: String.t()) :: t()
+  def new(client_id) when is_binary(client_id) do
+    %__MODULE__{client_id: client_id}
+  end
+
+  @doc """
+  Make a new `Auth` struct with a `client_id` and `client_secret`.
+  """
+  @spec new(client_id :: String.t(), client_secret :: String.t()) :: t()
+  def new(client_id, client_secret) when is_binary(client_id) and is_binary(client_secret) do
+    %__MODULE__{client_id: client_id, client_secret: client_secret}
+  end
+
+  @doc """
+  Make a new `Auth` struct with a `client_id`, `client_secret`, and `access_token`.
+  """
+  @spec new(client_id :: String.t(), client_secret :: String.t(), access_token :: String.t()) ::
+          t()
+  def new(client_id, client_secret, access_token)
+      when is_binary(client_id) and is_binary(client_secret) and is_binary(access_token) do
+    %__MODULE__{client_id: client_id, client_secret: client_secret, access_token: access_token}
+  end
+
+  @doc """
+  Add a `client_secret` to the `Auth` struct.
+  """
+  @spec put_client_secret(t(), client_secret :: String.t()) :: t()
+  def put_client_secret(%__MODULE__{} = auth, client_secret) when is_binary(client_secret) do
+    struct(auth, %{client_secret: client_secret})
+  end
+
+  @doc """
+  Add an `access_token` to the `Auth` struct.
+  """
+  @spec put_access_token(t(), access_token :: String.t()) :: t()
+  def put_access_token(%__MODULE__{} = auth, access_token) when is_binary(access_token) do
+    struct(auth, %{access_token: access_token})
+  end
+
+  @doc """
+  Merge string params into `Auth` struct.
+  """
+  @spec merge_string_params(t(), params :: %{String.t() => term()}) :: t()
+  def merge_string_params(%__MODULE__{} = auth, %{} = params) do
+    struct(auth, %{
+      access_token: params["access_token"],
+      expires_at: expires_in_to_datetime(params["expires_in"]),
+      refresh_token: params["refresh_token"]
+    })
   end
 
   @doc """
   Refresh an access token.
+  https://dev.twitch.tv/docs/authentication/refresh-tokens
+
+  If the request succeeds, the response contains the new access token, refresh
+  token, and scopes associated with the new grant. Because refresh tokens may
+  change, your app should safely store the new refresh token to use the next time.
+
+      {
+        "access_token": "1ssjqsqfy6bads1ws7m03gras79zfr",
+        "refresh_token": "eyJfMzUtNDU0OC4MWYwLTQ5MDY5ODY4NGNlMSJ9%asdfasdf=",
+        "scope": [
+          "channel:read:subscriptions",
+          "channel:manage:polls"
+        ],
+        "token_type": "bearer"
+      }
+
+  The following example shows what the response looks like if the request fails.
+
+      {
+        "error": "Bad Request",
+        "status": 400,
+        "message": "Invalid refresh token"
+      }
+
   """
-  @spec token_refresh(Auth.t()) :: {:ok, Req.Response.t()} | {:error, term()}
+  @spec token_refresh(t()) :: {:ok, Req.Response.t()} | {:error, term()}
   def token_refresh(%__MODULE__{} = auth) do
     params = [
       grant_type: "refresh_token",
@@ -41,11 +112,99 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Revoke an access token.
+  https://dev.twitch.tv/docs/authentication/revoke-tokens
+
+  If the revocation succeeds, the request returns HTTP status code 200 OK (with no body).
+
+  If the revocation fails, the request returns one of the following HTTP status codes:
+
+   * 400 Bad Request if the client ID is valid but the access token is not.
+
+      {
+        "status": 400,
+        "message": "Invalid token"
+      }
+
+   * 404 Not Found if the client ID is not valid.
+
+      {
+        "status": 404,
+        "message": "client does not exist"
+      }
+
   """
-  @spec token_revoke(Auth.t()) :: {:ok, Req.Response.t()} | {:error, term()}
+  @spec token_revoke(t()) :: {:ok, Req.Response.t()} | {:error, term()}
   def token_revoke(%__MODULE__{} = auth) do
     params = [client_id: auth.client_id, token: auth.access_token]
     Req.post(client(), url: "/oauth2/revoke", form: params)
+  end
+
+  @doc """
+  Get an access token with an authorization code.
+  https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow
+
+  If the request succeeds, it returns an access token and refresh token.
+
+      {
+        "access_token": "rfx2uswqe8l4g1mkagrvg5tv0ks3",
+        "expires_in": 14124,
+        "refresh_token": "5b93chm6hdve3mycz05zfzatkfdenfspp1h1ar2xxdalen01",
+        "scope": [
+          "channel:moderate",
+          "chat:edit",
+          "chat:read"
+        ],
+        "token_type": "bearer"
+      }
+
+  """
+  @spec token_get_from_code(t(), code :: String.t(), redirect_url :: String.t()) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  def token_get_from_code(%__MODULE__{} = auth, code, redirect_url) do
+    params = [
+      client_id: auth.client_id,
+      client_secret: auth.client_secret,
+      code: code,
+      grant_type: "authorization_code",
+      redirect_uri: redirect_url
+    ]
+
+    Req.post(client(), url: "/oauth2/token", form: params)
+  end
+
+  @doc """
+  Validate an access token.
+  https://dev.twitch.tv/docs/authentication/validate-tokens/#how-to-validate-a-token
+
+  If the token is valid, the request returns HTTP status code 200 and the
+  response’s body contains the following JSON object:
+
+      {
+        "client_id": "wbmytr93xzw8zbg0p1izqyzzc5mbiz",
+        "login": "twitchdev",
+        "scopes": [
+          "channel:read:subscriptions"
+        ],
+        "user_id": "141981764",
+        "expires_in": 5520838
+      }
+
+  If the token is not valid, the request returns HTTP status code 401 and the
+  response’s body contains the following JSON object:
+
+      {
+        "status": 401,
+        "message": "invalid access token"
+      }
+
+  """
+  @spec token_validate(t()) :: {:ok, Req.Response.t()} | {:error, term()}
+  def token_validate(%__MODULE__{} = auth) do
+    headers = %{
+      "authorization" => "OAuth #{auth.access_token}"
+    }
+
+    Req.get(@base_url <> "/oauth2/validate", headers: headers)
   end
 
   # ----------------------------------------------------------------------------
@@ -55,5 +214,12 @@ defmodule TwitchAPI.Auth do
   @spec client() :: Req.Request.t()
   defp client do
     Req.Request.new(base_url: @base_url)
+  end
+
+  @spec expires_in_to_datetime(nil | pos_integer()) :: nil | DateTime.t()
+  defp expires_in_to_datetime(nil), do: nil
+
+  defp expires_in_to_datetime(expires_in) when is_integer(expires_in) do
+    DateTime.utc_now() |> DateTime.add(expires_in, :seconds)
   end
 end
