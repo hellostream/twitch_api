@@ -112,17 +112,16 @@ defmodule TwitchAPI do
           pos_integer()
         ) ::
           {:ok, Req.Response.t()} | {:error, term()}
-  defp handle_response(resp, expected_status) do
-    case resp do
-      {:ok, %{status: ^expected_status} = resp} ->
-        Logger.debug("[TwitchAPI] success #{expected_status}")
+  defp handle_response(result, expected_status) do
+    case result do
+      {:ok, %Req.Response{status: ^expected_status} = resp} ->
         {:ok, resp}
 
-      {:ok, %{status: 429, headers: %{"ratelimit-reset" => resets_at}}} ->
+      {:ok, %Req.Response{status: 429, headers: %{"ratelimit-reset" => resets_at}} = resp} ->
         Logger.warning("[TwitchAPI] rate-limited; resets at #{resets_at}")
         {:error, resp}
 
-      {:ok, %{status: _status} = resp} ->
+      {:ok, %Req.Response{status: _status} = resp} ->
         Logger.error("[TwitchAPI] unexpected response: #{inspect(resp)}")
         {:error, resp}
 
@@ -133,10 +132,9 @@ defmodule TwitchAPI do
   end
 
   @spec handle_response!(Req.Response.t(), pos_integer()) :: Req.Response.t()
-  defp handle_response!(resp, expected_status) do
-    case resp do
+  defp handle_response!(result, expected_status) do
+    case result do
       %{status: ^expected_status} = resp ->
-        Logger.debug("[TwitchAPI] success #{expected_status}")
         resp
 
       %{status: 429, headers: %{"ratelimit-reset" => resets_at}} ->
