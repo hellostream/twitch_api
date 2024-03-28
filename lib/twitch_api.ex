@@ -128,7 +128,12 @@ defmodule TwitchAPI do
           {:halt, nil}
 
         cursor ->
-          case get(auth_or_client, endpoint, Keyword.merge(opts, [{direction, cursor}])) do
+          params =
+            Keyword.get(opts, :params, [])
+            |> Keyword.new()
+            |> Keyword.merge([{direction, cursor}])
+
+          case get(auth_or_client, endpoint, Keyword.merge(opts, params: params)) do
             {:ok, %{body: %{"data" => data, "pagination" => pagination}}} ->
               cursor = pagination["cursor"] || ""
               {data, cursor}
