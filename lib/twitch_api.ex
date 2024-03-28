@@ -61,21 +61,21 @@ defmodule TwitchAPI do
     """
     @spec unquote(method)(
             auth_or_client :: Auth.t() | Req.Request.t(),
-            url :: String.t(),
+            endpoint :: String.t(),
             opts :: keyword()
           ) ::
             {:ok, Req.Response.t()} | {:error, term()}
-    def unquote(method)(auth_or_client, url, opts \\ [])
+    def unquote(method)(auth_or_client, endpoint, opts \\ [])
 
-    def unquote(method)(%Auth{} = auth, url, opts) do
-      unquote(method)(client(auth), url, opts)
+    def unquote(method)(%Auth{} = auth, endpoint, opts) do
+      unquote(method)(client(auth), endpoint, opts)
     end
 
-    def unquote(method)(%Req.Request{} = client, url, opts) do
+    def unquote(method)(%Req.Request{} = client, endpoint, opts) do
       {success_code, opts} = Keyword.pop(opts, :success, 200)
 
       client
-      |> Req.unquote(method)([{:url, url} | opts])
+      |> Req.unquote(method)([{:url, endpoint} | opts])
       |> handle_response(success_code)
     end
 
@@ -85,22 +85,62 @@ defmodule TwitchAPI do
     """
     @spec unquote(method!)(
             auth_or_client :: Auth.t() | Req.Request.t(),
-            url :: String.t(),
+            endpoint :: String.t(),
             opts :: keyword()
           ) :: Req.Response.t()
-    def unquote(method!)(auth_or_client, url, opts \\ [])
+    def unquote(method!)(auth_or_client, endpoint, opts \\ [])
 
-    def unquote(method!)(%Auth{} = auth, url, opts) do
-      unquote(method!)(client(auth), url, opts)
+    def unquote(method!)(%Auth{} = auth, endpoint, opts) do
+      unquote(method!)(client(auth), endpoint, opts)
     end
 
-    def unquote(method!)(%Req.Request{} = client, url, opts) do
+    def unquote(method!)(%Req.Request{} = client, endpoint, opts) do
       {success_code, opts} = Keyword.pop(opts, :success, 200)
 
       client
-      |> Req.unquote(method!)([{:url, url} | opts])
+      |> Req.unquote(method!)([{:url, endpoint} | opts])
       |> handle_response!(success_code)
     end
+  end
+
+  @doc """
+  GET pages from Twitch API as a `Stream`.
+
+  You can start at a cursor if you pass in `:cursor` as one of the `opts`.
+  """
+  @spec stream!(
+          auth_or_client :: Auth.t() | Req.Request.t(),
+          endpoint :: String.t(),
+          direction :: :before | :after,
+          opts :: keyword()
+        ) :: Enumerable.t()
+  def stream!(auth_or_client, endpoint, direction, opts \\ []) do
+    {starting_cursor, opts} = Keyword.pop(opts, :cursor, nil)
+
+    Stream.resource(
+      # start_fun: initial accumulated value, computed lazily.
+      fn -> starting_cursor end,
+
+      # next_fun: successive values generated here.
+      # This is getting a page of values and sending the data and next cursor.
+      fn
+        "" ->
+          {:halt, nil}
+
+        cursor ->
+          case get(auth_or_client, endpoint, Keyword.merge(opts, [{direction, cursor}])) do
+            {:ok, %{body: %{"data" => data, "pagination" => pagination}}} ->
+              cursor = pagination["cursor"] || ""
+              {data, cursor}
+
+            {_, error} ->
+              raise "Error fetching #{endpoint}: #{inspect(error)}"
+          end
+      end,
+
+      # after_fun: executes at the end of the enumeration (on success or failure).
+      fn acc -> acc end
+    )
   end
 
   @spec handle_response(
