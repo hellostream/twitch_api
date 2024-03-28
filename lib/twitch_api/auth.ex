@@ -1,6 +1,8 @@
 defmodule TwitchAPI.Auth do
   @moduledoc """
   Twitch API Auth (and struct).
+
+  Functions for managing your auth and tokens.
   """
 
   @base_url "https://id.twitch.tv"
@@ -19,6 +21,12 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Make a new `Auth` struct with a `client_id`.
+
+  ## Example
+
+      iex> Auth.new("some-client-id")
+      %Auth{client_id: "some-client-id"}
+
   """
   @spec new(client_id :: String.t()) :: t()
   def new(client_id) when is_binary(client_id) do
@@ -27,6 +35,12 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Make a new `Auth` struct with a `client_id` and `client_secret`.
+
+  ## Example
+
+      iex> Auth.new("some-client-id", "secretssss")
+      %Auth{client_id: "some-client-id", client_secret: "secretssss"}
+
   """
   @spec new(client_id :: String.t(), client_secret :: String.t()) :: t()
   def new(client_id, client_secret) when is_binary(client_id) and is_binary(client_secret) do
@@ -35,6 +49,12 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Make a new `Auth` struct with a `client_id`, `client_secret`, and `access_token`.
+
+  ## Example
+
+      iex> Auth.new("some-client-id", "secretssss", "sometokenabc123")
+      %Auth{client_id: "some-client-id", client_secret: "secretssss", access_token: "sometokenabc123"}
+
   """
   @spec new(client_id :: String.t(), client_secret :: String.t(), access_token :: String.t()) ::
           t()
@@ -45,6 +65,13 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Add a `client_secret` to the `Auth` struct.
+
+  ## Example
+
+      iex> auth = Auth.new("some-client-id")
+      iex> Auth.put_client_secret(auth, "secretssss")
+      %Auth{client_id: "some-client-id", client_secret: "secretssss"}
+
   """
   @spec put_client_secret(t(), client_secret :: String.t()) :: t()
   def put_client_secret(%__MODULE__{} = auth, client_secret) when is_binary(client_secret) do
@@ -53,6 +80,13 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Add an `access_token` to the `Auth` struct.
+
+  ## Example
+
+      iex> auth = Auth.new("some-client-id")
+      iex> Auth.put_access_token(auth, "abc123")
+      %Auth{client_id: "some-client-id", access_token: "abc123"}
+
   """
   @spec put_access_token(t(), access_token :: String.t()) :: t()
   def put_access_token(%__MODULE__{} = auth, access_token) when is_binary(access_token) do
@@ -61,6 +95,18 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Merge string params into `Auth` struct.
+
+  ## Example
+
+      iex> auth = Auth.new("some-client-id")
+      iex> params = %{"access_token" => "abc123", "refresh_token" => "def456"}
+      iex> Auth.merge_string_params(auth, params)
+      %Auth{
+        client_id: "some-client-id",
+        access_token: "abc123",
+        refresh_token: "def456"
+      }
+
   """
   @spec merge_string_params(t(), params :: %{String.t() => term()}) :: t()
   def merge_string_params(%__MODULE__{} = auth, %{} = params) do
@@ -73,6 +119,7 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Refresh an access token.
+
   https://dev.twitch.tv/docs/authentication/refresh-tokens
 
   If the request succeeds, the response contains the new access token, refresh
@@ -112,6 +159,7 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Revoke an access token.
+
   https://dev.twitch.tv/docs/authentication/revoke-tokens
 
   If the revocation succeeds, the request returns HTTP status code 200 OK (with no body).
@@ -141,6 +189,7 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Get an access token with an authorization code.
+
   https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow
 
   If the request succeeds, it returns an access token and refresh token.
@@ -174,6 +223,7 @@ defmodule TwitchAPI.Auth do
 
   @doc """
   Validate an access token.
+
   https://dev.twitch.tv/docs/authentication/validate-tokens/#how-to-validate-a-token
 
   If the token is valid, the request returns HTTP status code 200 and the

@@ -6,27 +6,23 @@ defmodule TwitchAPI do
 
   ## Examples
 
-  ```elixir
-    client_id = "asdsdksdl93roi39"
-    access_token = "09wriujr329jd023920dk203kd0932d"
+      client_id = "asdsdksdl93roi39"
+      access_token = "09wriujr329jd023920dk203kd0932d"
 
-    auth = TwitchAPI.Auth.new(client_id, access_token)
+      auth = TwitchAPI.Auth.new(client_id, access_token)
 
-    case TwitchAPI.get(auth, "/users") do
-      {:ok, %{body: users}} ->
-        IO.inspect(users, label: "Successful response body")
+      case TwitchAPI.get(auth, "/users") do
+        {:ok, %{body: users}} ->
+          IO.inspect(users, label: "Successful response body")
 
-      {:error, resp} ->
-        IO.inspect(resp, label: "We got an error")
-    end
-  ```
+        {:error, resp} ->
+          IO.inspect(resp, label: "We got an error")
+      end
+
   """
-
   alias TwitchAPI.Auth
 
   require Logger
-
-  @type body_params :: map() | keyword()
 
   @base_url "https://api.twitch.tv/helix"
 
