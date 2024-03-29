@@ -1,3 +1,75 @@
+defmodule Mix.Tasks.Auth.Token do
+  @moduledoc """
+  A task for getting an OAuth access token from Twitch, using the authorization
+  code flow.
+
+  ## Usage
+
+      mix auth.token --output json
+
+  ## Options
+
+   * `--output` - Specify how we want to output the token. 
+     Valid values are: `json`, `.env`, `.envrc`, `stdio`, `clipboard`.
+
+  """
+  use Mix.Task
+
+  @base_url "https://id.twitch.tv/oauth2/authorize"
+  @port 42069
+
+  @shortdoc "Gets an access token from Twitch and writes it to `:output`"
+  @impl true
+  def run(argv) do
+    # mix auth.token --output .env | .envrc | json | stdio | clipboard
+    {opts, [], []} = OptionParser.parse(argv, strict: [output: :string])
+
+    Application.ensure_all_started(:req)
+
+    # TODO: Check args first.
+    client_id = System.fetch_env!("TWITCH_CLIENT_ID")
+    client_secret = System.fetch_env!("TWITCH_CLIENT_SECRET")
+    scope = System.fetch_env!("TWITCH_AUTH_SCOPE")
+    redirect_url = "http://localhost:#{@port}/oauth/callback"
+
+    auth = TwitchAPI.Auth.new(client_id, client_secret)
+
+    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.TempWebServer, port: @port)
+
+    params =
+      URI.encode_query(%{
+        client_id: client_id,
+        redirect_uri: redirect_url,
+        response_type: "code",
+        scope: scope
+      })
+
+    url = "#{@base_url}?#{params}"
+
+    case :os.type() do
+      {:unix, _} -> System.cmd("open", [url])
+      {:win32, _} -> System.cmd("cmd", ["/c", "start", url])
+    end
+
+    {:ok, _token_pid} =
+      TwitchAPI.AuthTokenServer.start_link(
+        auth: auth,
+        process: self(),
+        output: opts[:output],
+        redirect_url: redirect_url
+      )
+
+    wait(bandit_pid)
+  end
+
+  defp wait(bandit_pid) do
+    receive do
+      :done -> Supervisor.stop(bandit_pid, :normal)
+      _ -> wait(bandit_pid)
+    end
+  end
+end
+
 defmodule TwitchAPI.TempWebServer do
   @behaviour Plug
 
@@ -81,77 +153,10 @@ defmodule TwitchAPI.AuthTokenServer do
       |> Map.delete("expires_in")
       |> Jason.encode!(pretty: true)
 
-    # write json
-    "../../../.twitch.json"
-    |> Path.expand(__DIR__)
-    |> File.write!(json)
+    File.write!(".twitch.json", json)
   end
 
   defp token_output(output, _token) do
     raise "unhandled output type #{output}"
-  end
-end
-
-defmodule Mix.Tasks.Auth.Token do
-  use Mix.Task
-
-  @base_url "https://id.twitch.tv/oauth2/authorize"
-  @port 42069
-
-  @impl true
-  def run(argv) do
-    # mix auth.token --output .env | .envrc | json | stdio | clipboard
-    {opts, [], []} = OptionParser.parse(argv, strict: [output: :string])
-
-    Application.ensure_all_started(:req)
-
-    # Get required variables...
-    # TODO: Check args first.
-    client_id = System.fetch_env!("TWITCH_CLIENT_ID")
-    client_secret = System.fetch_env!("TWITCH_CLIENT_SECRET")
-    scope = System.fetch_env!("TWITCH_AUTH_SCOPE")
-    redirect_url = "http://localhost:#{@port}/oauth/callback"
-
-    auth = TwitchAPI.Auth.new(client_id, client_secret)
-
-    # Temporary webserver for redirect back.
-
-    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.TempWebServer, port: @port)
-
-    # Open browser to authorize URL.
-
-    params =
-      URI.encode_query(%{
-        client_id: client_id,
-        redirect_uri: redirect_url,
-        response_type: "code",
-        scope: scope
-      })
-
-    url = "#{@base_url}?#{params}"
-
-    case :os.type() do
-      {:unix, _} -> System.cmd("open", [url])
-      {:win32, _} -> System.cmd("cmd", ["/c", "start", url])
-    end
-
-    # GenServer for dealing with state...
-
-    {:ok, _token_pid} =
-      TwitchAPI.AuthTokenServer.start_link(
-        auth: auth,
-        process: self(),
-        output: opts[:output],
-        redirect_url: redirect_url
-      )
-
-    wait(bandit_pid)
-  end
-
-  defp wait(bandit_pid) do
-    receive do
-      :done -> Supervisor.stop(bandit_pid, :normal)
-      _ -> wait(bandit_pid)
-    end
   end
 end
