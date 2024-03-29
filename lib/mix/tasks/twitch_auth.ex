@@ -13,38 +13,66 @@ defmodule Mix.Tasks.Twitch.Auth do
      Valid values are: `json`, `.env`, `.envrc`, `stdio`, `clipboard`.
      NOTE: Only `json` is supported currently.
 
+  ## Auth Options
+
+   * `--client-id` - The Twitch client ID for your app. Defaults to the value
+     of the `TWITCH_CLIENT_ID` env var if not set.
+   * `--client-secret` - The Twitch client secret for your app. Defaults to the
+     value of the `TWITCH_CLIENT_SECRET` env var if not set.
+   * `--auth-scope` - The Twitch auth scope for your app. A space-separated
+     string.Defaults to the value of the `TWITCH_AUTH_SCOPE` env var if not set.
+   * `--listen-port` - The port that the temporary web server will listen on.
+     Defaults to `42069` if not set.
+
   ## ENV Vars
 
    * `TWITCH_CLIENT_ID` - The Twitch client ID for your app.
    * `TWITCH_CLIENT_SECRET` - The Twitch client secret for your app.
    * `TWITCH_AUTH_SCOPE` - The Twitch scopes as a space-separated string.
-   * `TWITCH_AUTH_PORT` - The port that the temp web server will listen on.
-     Defaults to `42069`.
 
   """
   use Mix.Task
 
   @base_url "https://id.twitch.tv/oauth2/authorize"
+  @outputs ~w[clipboard .env .envrc json stdout]
+  @default_output "json"
 
   @shortdoc "Gets a Twitch access token"
 
+  @doc false
   @impl true
   def run(argv) do
-    # mix auth.token --output .env | .envrc | json | stdio | clipboard
-    {opts, [], []} = OptionParser.parse(argv, strict: [output: :string])
+    ## Parse args and options.
 
-    Application.ensure_all_started(:req)
+    {opts, [], []} = OptionParser.parse(argv, switches: [output: :string])
 
-    # TODO: Check args first.
-    client_id = System.fetch_env!("TWITCH_CLIENT_ID")
-    client_secret = System.fetch_env!("TWITCH_CLIENT_SECRET")
-    scope = System.fetch_env!("TWITCH_AUTH_SCOPE")
-    port = System.get_env("TWITCH_AUTH_PORT", "42069") |> String.to_integer()
+    output = opts[:output] || @default_output
+
+    if output not in @outputs, do: raise("output #{output} not one of #{inspect(@outputs)}")
+
+    client_id = opts[:client_id] || System.fetch_env!("TWITCH_CLIENT_ID")
+    client_secret = opts[:client_secret] || System.fetch_env!("TWITCH_CLIENT_SECRET")
+    scope = opts[:auth_scope] || System.fetch_env!("TWITCH_AUTH_SCOPE")
+    port = opts[:listen_port] || 42069
     redirect_url = "http://localhost:#{port}/oauth/callback"
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
 
+    ## Start services.
+
+    {:ok, _http_client} = Application.ensure_all_started(:req)
+
     {:ok, webserver} = Bandit.start_link(plug: TwitchAPI.AuthWebServer, port: port)
+
+    {:ok, _authserver} =
+      TwitchAPI.AuthServer.start_link(
+        auth: auth,
+        process: self(),
+        output: output,
+        redirect_url: redirect_url
+      )
+
+    ## Open browser.
 
     params =
       URI.encode_query(%{
@@ -61,13 +89,7 @@ defmodule Mix.Tasks.Twitch.Auth do
       {:win32, _} -> System.cmd("cmd", ["/c", "start", url])
     end
 
-    {:ok, _authserver} =
-      TwitchAPI.AuthServer.start_link(
-        auth: auth,
-        process: self(),
-        output: opts[:output],
-        redirect_url: redirect_url
-      )
+    ## Wait for result.
 
     wait(webserver)
   end
