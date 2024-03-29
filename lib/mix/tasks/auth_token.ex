@@ -12,11 +12,19 @@ defmodule Mix.Tasks.Auth.Token do
    * `--output` - Specify how we want to output the token. 
      Valid values are: `json`, `.env`, `.envrc`, `stdio`, `clipboard`.
 
+
+  ## ENV Vars
+
+   * `TWITCH_CLIENT_ID` - The Twitch client ID for your app.
+   * `TWITCH_CLIENT_SECRET` - The Twitch client secret for your app.
+   * `TWITCH_AUTH_SCOPE` - The Twitch scopes as a space-separated string.
+   * `TWITCH_AUTH_PORT` - The port that the temp web server will listen on.
+     Defaults to `42069`.
+
   """
   use Mix.Task
 
   @base_url "https://id.twitch.tv/oauth2/authorize"
-  @port 42069
 
   @shortdoc "Gets an access token from Twitch and writes it to `:output`"
   @impl true
@@ -30,11 +38,12 @@ defmodule Mix.Tasks.Auth.Token do
     client_id = System.fetch_env!("TWITCH_CLIENT_ID")
     client_secret = System.fetch_env!("TWITCH_CLIENT_SECRET")
     scope = System.fetch_env!("TWITCH_AUTH_SCOPE")
-    redirect_url = "http://localhost:#{@port}/oauth/callback"
+    port = System.get_env("TWITCH_AUTH_PORT", "42069") |> String.to_integer()
+    redirect_url = "http://localhost:#{port}/oauth/callback"
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
 
-    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.TempWebServer, port: @port)
+    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.TempWebServer, port: port)
 
     params =
       URI.encode_query(%{
@@ -89,7 +98,7 @@ defmodule TwitchAPI.TempWebServer do
       |> handle_code()
     end
 
-    send_resp(conn, 200, "OKAY MAN") |> halt()
+    send_resp(conn, 200, "You can close this window.") |> halt()
   end
 
   defp handle_code(%{"code" => code} = _params) do
@@ -97,7 +106,7 @@ defmodule TwitchAPI.TempWebServer do
   end
 
   defp handle_code(%{"error" => error} = params) do
-    Logger.error("[TempWebServer] error #{error}: #{params["error_description"]}")
+    raise "[TempWebServer] error #{error}: #{params["error_description"]}"
   end
 end
 
@@ -133,8 +142,8 @@ defmodule TwitchAPI.AuthTokenServer do
     result = TwitchAPI.Auth.token_get_from_code(state.auth, code, state.redirect_url)
 
     case result do
-      {:ok, %{body: token}} -> token_output(state.output, token)
-      {:error, error} -> raise "Failed to get token #{inspect(error)}"
+      {:ok, %{status: 200, body: token}} -> token_output(state.output, token)
+      {_, error} -> raise "Failed to get token #{inspect(error)}"
     end
 
     send(state.process, :done)
