@@ -43,7 +43,7 @@ defmodule Mix.Tasks.Auth.Token do
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
 
-    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.TempWebServer, port: port)
+    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.AuthWebServer, port: port)
 
     params =
       URI.encode_query(%{
@@ -61,7 +61,7 @@ defmodule Mix.Tasks.Auth.Token do
     end
 
     {:ok, _token_pid} =
-      TwitchAPI.AuthTokenServer.start_link(
+      TwitchAPI.AuthServer.start_link(
         auth: auth,
         process: self(),
         output: opts[:output],
@@ -71,15 +71,31 @@ defmodule Mix.Tasks.Auth.Token do
     wait(bandit_pid)
   end
 
+  ## Helpers
+
   defp wait(bandit_pid) do
     receive do
-      :done -> Supervisor.stop(bandit_pid, :normal)
-      _ -> wait(bandit_pid)
+      :done ->
+        Supervisor.stop(bandit_pid, :normal)
+
+      {:failed, reason} ->
+        Mix.shell().error(reason)
+        Supervisor.stop(bandit_pid, :normal)
+
+      _ ->
+        wait(bandit_pid)
     end
   end
 end
 
-defmodule TwitchAPI.TempWebServer do
+# ------------------------------------------------------------------------------
+# Auth Web Server
+# ------------------------------------------------------------------------------
+# We need a temporary web server to handle the OAuth callback with the
+# authorization code. We then send that code to the `AuthTokenServer` to handle
+# the rest.
+
+defmodule TwitchAPI.AuthWebServer do
   @moduledoc false
   @behaviour Plug
 
@@ -103,15 +119,22 @@ defmodule TwitchAPI.TempWebServer do
   end
 
   defp handle_code(%{"code" => code} = _params) do
-    TwitchAPI.AuthTokenServer.get_token_from_code(code)
+    TwitchAPI.AuthServer.get_token_from_code(code)
   end
 
-  defp handle_code(%{"error" => error} = params) do
-    raise "[TempWebServer] error #{error}: #{params["error_description"]}"
+  defp handle_code(%{"error" => _error} = params) do
+    TwitchAPI.AuthServer.failed("error #{params["error"]}: #{params["error_detail"]}")
   end
 end
 
-defmodule TwitchAPI.AuthTokenServer do
+# ------------------------------------------------------------------------------
+# Auth GenServer
+# ------------------------------------------------------------------------------
+# This is used for keeping the auth credentials and making the request to
+# Twitch API. We need this as a genserver to be able to receive messages from
+# the web server and then stopping the main process.
+
+defmodule TwitchAPI.AuthServer do
   @moduledoc false
   use GenServer
 
@@ -126,6 +149,12 @@ defmodule TwitchAPI.AuthTokenServer do
   def get_token_from_code(code) do
     GenServer.cast(__MODULE__, {:token_from_code, code})
   end
+
+  def failed(reason) do
+    GenServer.cast(__MODULE__, {:failed, reason})
+  end
+
+  ## GenServer callbacks
 
   @impl true
   def init(opts) do
@@ -152,6 +181,13 @@ defmodule TwitchAPI.AuthTokenServer do
 
     {:stop, :normal, state}
   end
+
+  def handle_cast({:failed, reason}, state) do
+    send(state.process, {:failed, reason})
+    {:stop, :normal, state}
+  end
+
+  ## Helpers
 
   defp token_output("json", token) do
     Logger.debug("[AuthTokenServer] writing json...")
