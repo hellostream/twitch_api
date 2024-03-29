@@ -26,7 +26,8 @@ defmodule Mix.Tasks.Twitch.Auth do
 
   @base_url "https://id.twitch.tv/oauth2/authorize"
 
-  @shortdoc "Gets an access token from Twitch and writes it to `:output`"
+  @shortdoc "Gets a Twitch access token"
+
   @impl true
   def run(argv) do
     # mix auth.token --output .env | .envrc | json | stdio | clipboard

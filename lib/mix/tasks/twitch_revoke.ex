@@ -24,7 +24,7 @@ defmodule Mix.Tasks.Twitch.Revoke do
 
   @default_env "TWITCH_ACCESS_TOKEN"
 
-  @shortdoc "Revoke an auth token from env var or file"
+  @shortdoc "Revokes a Twitch access token"
 
   @impl true
   def run(argv) do
