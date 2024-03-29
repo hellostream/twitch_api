@@ -80,6 +80,7 @@ defmodule Mix.Tasks.Auth.Token do
 end
 
 defmodule TwitchAPI.TempWebServer do
+  @moduledoc false
   @behaviour Plug
 
   import Plug.Conn
@@ -111,6 +112,7 @@ defmodule TwitchAPI.TempWebServer do
 end
 
 defmodule TwitchAPI.AuthTokenServer do
+  @moduledoc false
   use GenServer
 
   require Logger
