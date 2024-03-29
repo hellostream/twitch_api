@@ -86,7 +86,7 @@ defmodule Mix.Tasks.Twitch.Auth do
 
     case :os.type() do
       {:unix, _} -> System.cmd("open", [url])
-      {:win32, _} -> System.cmd("cmd", ["/c", "start", url])
+      {:win32, _} -> System.cmd("cmd", ["/c", "start", String.replace(url, "&", "^&")])
     end
 
     ## Wait for result.
