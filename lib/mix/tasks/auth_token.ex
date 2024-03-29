@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Auth.Token do
 
    * `--output` - Specify how we want to output the token. 
      Valid values are: `json`, `.env`, `.envrc`, `stdio`, `clipboard`.
-
+     NOTE: Only `json` is supported currently.
 
   ## ENV Vars
 
@@ -76,6 +76,7 @@ defmodule Mix.Tasks.Auth.Token do
   defp wait(bandit_pid) do
     receive do
       :done ->
+        Mix.shell().info("Finished successfully")
         Supervisor.stop(bandit_pid, :normal)
 
       {:failed, reason} ->
@@ -170,24 +171,36 @@ defmodule TwitchAPI.AuthServer do
 
   @impl true
   def handle_cast({:token_from_code, code}, state) do
-    result = TwitchAPI.Auth.token_get_from_code(state.auth, code, state.redirect_url)
-
-    case result do
-      {:ok, %{status: 200, body: token}} -> token_output(state.output, token)
-      {_, error} -> raise "Failed to get token #{inspect(error)}"
+    with(
+      {:ok, token} <- fetch_token(state.auth, code, state.redirect_url),
+      :ok <- token_output(state.output, token)
+    ) do
+      send(state.process, :done)
+    else
+      {:error, reason} ->
+        send(state.process, {:failed, reason})
     end
-
-    send(state.process, :done)
 
     {:stop, :normal, state}
   end
 
+  @impl true
   def handle_cast({:failed, reason}, state) do
     send(state.process, {:failed, reason})
     {:stop, :normal, state}
   end
 
   ## Helpers
+
+  def fetch_token(auth, code, redirect_url) do
+    case TwitchAPI.Auth.token_get_from_code(auth, code, redirect_url) do
+      {:ok, %{status: 200, body: token}} ->
+        {:ok, token}
+
+      {_, error} ->
+        {:error, "failed to get token #{inspect(error, pretty: true)}"}
+    end
+  end
 
   defp token_output("json", token) do
     Logger.debug("[AuthTokenServer] writing json...")
@@ -204,6 +217,6 @@ defmodule TwitchAPI.AuthServer do
   end
 
   defp token_output(output, _token) do
-    raise "unhandled output type #{output}"
+    {:error, "unhandled output type #{output}"}
   end
 end
