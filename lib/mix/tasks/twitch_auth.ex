@@ -1,11 +1,11 @@
-defmodule Mix.Tasks.Auth.Token do
+defmodule Mix.Tasks.Twitch.Auth do
   @moduledoc """
   A task for getting an OAuth access token from Twitch, using the authorization
   code flow.
 
   ## Usage
 
-      mix auth.token --output json
+      mix twitch.auth [OPTION]
 
   ## Options
 
