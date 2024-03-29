@@ -6,7 +6,7 @@ defmodule TwitchAPI.MixProject do
   def project do
     [
       app: :hello_twitch_api,
-      version: "0.4.6",
+      version: "0.4.7",
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -28,7 +28,8 @@ defmodule TwitchAPI.MixProject do
   defp deps do
     [
       {:req, "~> 0.4.11"},
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:bandit, "~> 1.0", only: :dev, runtime: false}
     ]
   end
 

@@ -263,7 +263,7 @@ defmodule TwitchAPI.Auth do
 
   @spec client() :: Req.Request.t()
   defp client do
-    Req.Request.new(base_url: @base_url)
+    Req.new(base_url: @base_url)
   end
 
   @spec expires_in_to_datetime(nil | pos_integer()) :: nil | DateTime.t()
