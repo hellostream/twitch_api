@@ -44,7 +44,7 @@ defmodule Mix.Tasks.Twitch.Auth do
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
 
-    {:ok, bandit_pid} = Bandit.start_link(plug: TwitchAPI.AuthWebServer, port: port)
+    {:ok, webserver} = Bandit.start_link(plug: TwitchAPI.AuthWebServer, port: port)
 
     params =
       URI.encode_query(%{
@@ -61,7 +61,7 @@ defmodule Mix.Tasks.Twitch.Auth do
       {:win32, _} -> System.cmd("cmd", ["/c", "start", url])
     end
 
-    {:ok, _token_pid} =
+    {:ok, _authserver} =
       TwitchAPI.AuthServer.start_link(
         auth: auth,
         process: self(),
@@ -69,23 +69,23 @@ defmodule Mix.Tasks.Twitch.Auth do
         redirect_url: redirect_url
       )
 
-    wait(bandit_pid)
+    wait(webserver)
   end
 
   ## Helpers
 
-  defp wait(bandit_pid) do
+  defp wait(webserver) do
     receive do
       :done ->
         Mix.shell().info("Finished successfully")
-        Supervisor.stop(bandit_pid, :normal)
+        Supervisor.stop(webserver, :normal)
 
       {:failed, reason} ->
         Mix.shell().error(reason)
-        Supervisor.stop(bandit_pid, :normal)
+        Supervisor.stop(webserver, :normal)
 
       _ ->
-        wait(bandit_pid)
+        wait(webserver)
     end
   end
 end
@@ -94,12 +94,14 @@ end
 # Auth Web Server
 # ------------------------------------------------------------------------------
 # We need a temporary web server to handle the OAuth callback with the
-# authorization code. We then send that code to the `AuthTokenServer` to handle
+# authorization code. We then send that code to the `AuthServer` to handle
 # the rest.
 
 defmodule TwitchAPI.AuthWebServer do
   @moduledoc false
   @behaviour Plug
+
+  alias TwitchAPI.AuthServer
 
   import Plug.Conn
 
@@ -121,16 +123,16 @@ defmodule TwitchAPI.AuthWebServer do
   end
 
   defp handle_code(%{"code" => code} = _params) do
-    TwitchAPI.AuthServer.get_token_from_code(code)
+    AuthServer.token_from_code(code)
   end
 
   defp handle_code(%{"error" => _error} = params) do
-    TwitchAPI.AuthServer.failed("error #{params["error"]}: #{params["error_detail"]}")
+    AuthServer.failed("error #{params["error"]}: #{params["error_detail"]}")
   end
 end
 
 # ------------------------------------------------------------------------------
-# Auth GenServer
+# AuthServer (GenServer)
 # ------------------------------------------------------------------------------
 # This is used for keeping the auth credentials and making the request to
 # Twitch API. We need this as a genserver to be able to receive messages from
@@ -148,7 +150,7 @@ defmodule TwitchAPI.AuthServer do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def get_token_from_code(code) do
+  def token_from_code(code) do
     GenServer.cast(__MODULE__, {:token_from_code, code})
   end
 
@@ -193,7 +195,7 @@ defmodule TwitchAPI.AuthServer do
 
   ## Helpers
 
-  def fetch_token(auth, code, redirect_url) do
+  defp fetch_token(auth, code, redirect_url) do
     case TwitchAPI.Auth.token_get_from_code(auth, code, redirect_url) do
       {:ok, %{status: 200, body: token}} ->
         {:ok, token}
