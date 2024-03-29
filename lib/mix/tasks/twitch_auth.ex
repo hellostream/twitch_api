@@ -10,8 +10,8 @@ defmodule Mix.Tasks.Twitch.Auth do
   ## Options
 
    * `--output` - Specify how we want to output the token. 
-     Valid values are: `json`, `.env`, `.envrc`, `stdio`, `clipboard`.
-     NOTE: Only `json` is supported currently.
+     Valid values are: `json`, `.env`, `.envrc`, `stdout`, `clipboard`.
+     NOTE: Only `json` and `stdout` are supported currently.
 
   ## Auth Options
 
@@ -42,6 +42,8 @@ defmodule Mix.Tasks.Twitch.Auth do
   @doc false
   @impl true
   def run(argv) do
+    Logger.configure(level: :error)
+
     ## Parse args and options.
 
     {opts, [], []} = OptionParser.parse(argv, switches: [output: :string])
@@ -239,6 +241,16 @@ defmodule TwitchAPI.AuthServer do
       |> Jason.encode!(pretty: true)
 
     File.write!(".twitch.json", json)
+    Mix.shell().info("Wrote .twitch.json file")
+  end
+
+  defp token_output("stdout", token) do
+    Mix.shell().info("""
+    Access token received:
+
+      TWITCH_ACCESS_TOKEN=#{token["access_token"]}
+      TWITCH_REFRESH_TOKEN=#{token["refresh_token"]}
+    """)
   end
 
   defp token_output(output, _token) do
