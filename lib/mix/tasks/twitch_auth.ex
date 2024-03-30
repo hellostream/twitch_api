@@ -19,6 +19,10 @@ defmodule Mix.Tasks.Twitch.Auth do
    * `--output` - Specify how we want to output the token. 
      Valid values are: `json`, `.env`, `.envrc`, `stdout`, `clipboard`.
      NOTE: Only `json` and `stdout` are supported currently.
+   * `--listen-port` - The port that the temporary web server will listen on.
+     Defaults to `42069` if not set.
+   * `--listen-timeout` - The time in ms that the server waits for a the twitch
+     redirect with the authorization code. Defaults to `300_000` if not set.
 
   ## Auth Options
 
@@ -30,8 +34,6 @@ defmodule Mix.Tasks.Twitch.Auth do
      string. Defaults to the value of the `TWITCH_AUTH_SCOPE` env var if not set.
      If the env var is not set, it defaults to the `default_scope` list, which
      should be all `read` scopes except for `whisper` and `stream_key`.
-   * `--listen-port` - The port that the temporary web server will listen on.
-     Defaults to `42069` if not set.
 
   ## ENV Vars
 
@@ -50,20 +52,7 @@ defmodule Mix.Tasks.Twitch.Auth do
 
   @default_listen_port 42069
 
-  @default_scope_list ~w[
-    analytics:read:extensions analytics:read:games bits:read
-    channel:read:ads channel:read:charity channel:read:goals
-    channel:read:guest_star channel:read:hype_train channel:read:polls
-    channel:read:predictions channel:read:redemptions channel:read:subscriptions
-    channel:read:vips moderation:read moderator:read:automod_settings
-    moderator:read:blocked_terms moderator:read:chat_settings
-    moderator:read:chatters moderator:read:followers moderator:read:guest_star
-    moderator:read:shield_mode moderator:read:shoutouts user:read:blocked_users
-    user:read:broadcast user:read:email user:read:follows user:read:subscriptions
-    channel:bot chat:read user:bot user:read:chat
-  ]
-
-  @default_scope Enum.join(@default_scope_list, " ")
+  @default_listen_timeout 300_000
 
   @shortdoc "Gets a Twitch access token"
 
@@ -82,8 +71,9 @@ defmodule Mix.Tasks.Twitch.Auth do
 
     client_id = opts[:client_id] || System.fetch_env!("TWITCH_CLIENT_ID")
     client_secret = opts[:client_secret] || System.fetch_env!("TWITCH_CLIENT_SECRET")
-    scope = opts[:auth_scope] || System.get_env("TWITCH_AUTH_SCOPE", @default_scope)
+    scope = opts[:auth_scope] || System.fetch_env!("TWITCH_AUTH_SCOPE")
     port = opts[:listen_port] || @default_listen_port
+    timeout = opts[:listen_timeout] || @default_listen_timeout
     redirect_url = "http://localhost:#{port}/oauth/callback"
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
@@ -92,14 +82,10 @@ defmodule Mix.Tasks.Twitch.Auth do
 
     {:ok, _http_client} = Application.ensure_all_started(:req)
 
-    {:ok, webserver} = Bandit.start_link(plug: TwitchAPI.AuthWebServer, port: port)
-
-    {:ok, _authserver} =
-      TwitchAPI.AuthServer.start_link(
-        auth: auth,
-        process: self(),
-        output: output,
-        redirect_url: redirect_url
+    {:ok, _webserver} =
+      Bandit.start_link(
+        plug: {TwitchAPI.AuthWebServer, process: self()},
+        port: port
       )
 
     ## Open browser.
@@ -119,147 +105,49 @@ defmodule Mix.Tasks.Twitch.Auth do
       {:win32, _} -> System.cmd("cmd", ["/c", "start", String.replace(url, "&", "^&")])
     end
 
-    ## Wait for result.
+    ## Wait for the code result, and then fetch the token, and write it to output.
 
-    wait(webserver)
-  end
-
-  ## Helpers
-
-  defp wait(webserver) do
-    receive do
-      :done ->
-        Mix.shell().info("Finished successfully")
-        Supervisor.stop(webserver, :normal)
-
-      {:failed, reason} ->
-        Mix.shell().error(reason)
-        Supervisor.stop(webserver, :normal)
-
-      _ ->
-        wait(webserver)
-    end
-  end
-end
-
-# ------------------------------------------------------------------------------
-# Auth Web Server
-# ------------------------------------------------------------------------------
-# We need a temporary web server to handle the OAuth callback with the
-# authorization code. We then send that code to the `AuthServer` to handle
-# the rest.
-
-defmodule TwitchAPI.AuthWebServer do
-  @moduledoc false
-  @behaviour Plug
-
-  alias TwitchAPI.AuthServer
-
-  import Plug.Conn
-
-  require Logger
-
-  @impl true
-  def init(opts), do: opts
-
-  @impl true
-  def call(conn, _opts) do
-    if conn.path_info == ["oauth", "callback"] do
-      conn
-      |> fetch_query_params()
-      |> Map.fetch!(:query_params)
-      |> handle_code()
-    end
-
-    send_resp(conn, 200, "You can close this window.") |> halt()
-  end
-
-  defp handle_code(%{"code" => code} = _params) do
-    AuthServer.token_from_code(code)
-  end
-
-  defp handle_code(%{"error" => _error} = params) do
-    AuthServer.failed("error #{params["error"]}: #{params["error_detail"]}")
-  end
-end
-
-# ------------------------------------------------------------------------------
-# AuthServer (GenServer)
-# ------------------------------------------------------------------------------
-# This is used for keeping the auth credentials and making the request to
-# Twitch API. We need this as a genserver to be able to receive messages from
-# the web server and then stopping the main process.
-
-defmodule TwitchAPI.AuthServer do
-  @moduledoc false
-  use GenServer
-
-  require Logger
-
-  @default_output "json"
-
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  def token_from_code(code) do
-    GenServer.cast(__MODULE__, {:token_from_code, code})
-  end
-
-  def failed(reason) do
-    GenServer.cast(__MODULE__, {:failed, reason})
-  end
-
-  ## GenServer callbacks
-
-  @impl true
-  def init(opts) do
-    state = %{
-      auth: Keyword.fetch!(opts, :auth),
-      process: Keyword.fetch!(opts, :process),
-      redirect_url: Keyword.fetch!(opts, :redirect_url),
-      output: Keyword.get(opts, :output) || @default_output
-    }
-
-    {:ok, state}
-  end
-
-  @impl true
-  def handle_cast({:token_from_code, code}, state) do
     with(
-      {:ok, token} <- fetch_token(state.auth, code, state.redirect_url),
-      :ok <- token_output(state.output, token)
+      {:ok, code} <- wait_for_code(timeout),
+      {:ok, token} <- fetch_token(auth, code, redirect_url),
+      :ok <- token_output(output, token)
     ) do
-      send(state.process, :done)
+      Mix.shell().info("Finished successfully")
     else
       {:error, reason} ->
-        send(state.process, {:failed, reason})
+        Mix.shell().error(reason)
     end
-
-    {:stop, :normal, state}
-  end
-
-  @impl true
-  def handle_cast({:failed, reason}, state) do
-    send(state.process, {:failed, reason})
-    {:stop, :normal, state}
   end
 
   ## Helpers
+
+  defp wait_for_code(timeout) do
+    receive do
+      {:code, code} -> {:ok, code}
+      {:failed, reason} -> {:error, reason}
+      _ -> wait_for_code(timeout)
+    after
+      timeout ->
+        {:error, "No response after #{div(timeout, 1000)} seconds"}
+    end
+  end
 
   defp fetch_token(auth, code, redirect_url) do
     case TwitchAPI.Auth.token_get_from_code(auth, code, redirect_url) do
       {:ok, %{status: 200, body: token}} ->
         {:ok, token}
 
+      {:ok, %{body: body}} ->
+        {:error, "Token fetch error:\n#{inspect(body, pretty: true)}"}
+
       {_, error} ->
-        {:error, "failed to get token #{inspect(error, pretty: true)}"}
+        {:error, "Token fetch error:\n#{inspect(error, pretty: true)}"}
     end
   end
 
-  defp token_output("json", token) do
-    Logger.debug("[AuthTokenServer] writing json...")
+  ## Write the token output
 
+  defp token_output("json", token) do
     expires_at = DateTime.utc_now() |> DateTime.add(token["expires_in"], :second)
 
     json =
@@ -269,6 +157,7 @@ defmodule TwitchAPI.AuthServer do
       |> Jason.encode!(pretty: true)
 
     File.write!(".twitch.json", json)
+
     Mix.shell().info("Wrote .twitch.json file")
   end
 
@@ -283,5 +172,47 @@ defmodule TwitchAPI.AuthServer do
 
   defp token_output(output, _token) do
     {:error, "unhandled output type #{output}"}
+  end
+end
+
+# ------------------------------------------------------------------------------
+# Auth Web Server
+# ------------------------------------------------------------------------------
+# We need a temporary web server to handle the OAuth callback with the
+# authorization code. We then send that code to the `AuthServer` to handle
+# the rest.
+
+defmodule TwitchAPI.AuthWebServer do
+  @moduledoc false
+  @behaviour Plug
+
+  alias Plug.Conn
+
+  require Logger
+
+  @impl true
+  def init(opts), do: Keyword.fetch!(opts, :process)
+
+  @impl true
+  def call(conn, process) do
+    if conn.path_info == ["oauth", "callback"] do
+      conn
+      |> Conn.fetch_query_params()
+      |> tap(&handle_code(&1.query_params, process))
+      |> Conn.send_resp(200, "You can close this window")
+      |> Conn.halt()
+    else
+      conn
+      |> Conn.send_resp(404, "Not found")
+      |> Conn.halt()
+    end
+  end
+
+  defp handle_code(%{"code" => code}, process) do
+    send(process, {:code, code})
+  end
+
+  defp handle_code(%{"error" => error, "error_detail" => detail}, process) do
+    send(process, {:failed, "error #{error}: #{detail}"})
   end
 end
