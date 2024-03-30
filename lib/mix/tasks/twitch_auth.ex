@@ -3,6 +3,13 @@ defmodule Mix.Tasks.Twitch.Auth do
   A task for getting an OAuth access token from Twitch, using the authorization
   code flow.
 
+  NOTE: To use this, you need to add the local listener to your app's redirect urls:
+
+      http://localhost:42069/oauth/callback
+
+  Where `42069` is the default `--listen-port` value. Change the port to match any
+  value you use for this if you specify it yourself.
+
   ## Usage
 
       mix twitch.auth [OPTION]
@@ -20,7 +27,9 @@ defmodule Mix.Tasks.Twitch.Auth do
    * `--client-secret` - The Twitch client secret for your app. Defaults to the
      value of the `TWITCH_CLIENT_SECRET` env var if not set.
    * `--auth-scope` - The Twitch auth scope for your app. A space-separated
-     string.Defaults to the value of the `TWITCH_AUTH_SCOPE` env var if not set.
+     string. Defaults to the value of the `TWITCH_AUTH_SCOPE` env var if not set.
+     If the env var is not set, it defaults to the `default_scope` list, which
+     should be all `read` scopes except for `whisper` and `stream_key`.
    * `--listen-port` - The port that the temporary web server will listen on.
      Defaults to `42069` if not set.
 
@@ -34,8 +43,27 @@ defmodule Mix.Tasks.Twitch.Auth do
   use Mix.Task
 
   @base_url "https://id.twitch.tv/oauth2/authorize"
+
   @outputs ~w[clipboard .env .envrc json stdout]
+
   @default_output "json"
+
+  @default_listen_port 42069
+
+  @default_scope_list ~w[
+    analytics:read:extensions analytics:read:games bits:read
+    channel:read:ads channel:read:charity channel:read:goals
+    channel:read:guest_star channel:read:hype_train channel:read:polls
+    channel:read:predictions channel:read:redemptions channel:read:subscriptions
+    channel:read:vips moderation:read moderator:read:automod_settings
+    moderator:read:blocked_terms moderator:read:chat_settings
+    moderator:read:chatters moderator:read:followers moderator:read:guest_star
+    moderator:read:shield_mode moderator:read:shoutouts user:read:blocked_users
+    user:read:broadcast user:read:email user:read:follows user:read:subscriptions
+    channel:bot chat:read user:bot user:read:chat
+  ]
+
+  @default_scope Enum.join(@default_scope_list, " ")
 
   @shortdoc "Gets a Twitch access token"
 
@@ -54,8 +82,8 @@ defmodule Mix.Tasks.Twitch.Auth do
 
     client_id = opts[:client_id] || System.fetch_env!("TWITCH_CLIENT_ID")
     client_secret = opts[:client_secret] || System.fetch_env!("TWITCH_CLIENT_SECRET")
-    scope = opts[:auth_scope] || System.fetch_env!("TWITCH_AUTH_SCOPE")
-    port = opts[:listen_port] || 42069
+    scope = opts[:auth_scope] || System.get_env("TWITCH_AUTH_SCOPE", @default_scope)
+    port = opts[:listen_port] || @default_listen_port
     redirect_url = "http://localhost:#{port}/oauth/callback"
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
