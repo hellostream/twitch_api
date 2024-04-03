@@ -158,16 +158,10 @@ defmodule TwitchAPI do
       {:ok, %Req.Response{status: ^expected_status} = resp} ->
         {:ok, resp}
 
-      {:ok, %Req.Response{status: 429, headers: %{"ratelimit-reset" => resets_at}} = resp} ->
-        Logger.warning("[TwitchAPI] rate-limited; resets at #{resets_at}")
-        {:error, resp}
-
       {:ok, %Req.Response{status: _status} = resp} ->
-        Logger.error("[TwitchAPI] unexpected response: #{inspect(resp)}")
         {:error, resp}
 
       {:error, error} ->
-        Logger.error("[TwitchAPI] error making request: #{inspect(error)}")
         {:error, error}
     end
   end
