@@ -39,7 +39,11 @@ defmodule TwitchAPI do
   def client(%Auth{} = auth) do
     headers = %{"client-id" => auth.client_id}
     auth = auth.access_token && {:bearer, auth.access_token}
+
     Req.new(base_url: @base_url, headers: headers, auth: auth)
+    |> Req.Request.put_private(:twitch_auth, auth)
+    |> Req.Request.put_private(:refresh_attempted?, false)
+    |> Req.Request.append_response_steps(refresh: &Auth.token_refresh_step/1)
   end
 
   # Metaprogramming to generate all the request method functions.

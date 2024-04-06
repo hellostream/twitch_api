@@ -3,6 +3,18 @@ defmodule TwitchAPI.Auth do
   Twitch API Auth (and struct).
 
   Functions for managing your auth and tokens.
+
+  ## Notes
+
+   * `Implicit` grant flow gives user access tokens that expire in `14124`
+     seconds (~4 hours).
+
+   * `Client Credentials` grant flow gives app access tokens that expire
+     in `5011271` seconds (~58 days).
+
+   * `Authorization Code` Grant flow gives user access tokens that expires
+     in `14124` seconds (~4 hours).
+
   """
 
   @base_url "https://id.twitch.tv"
@@ -255,6 +267,49 @@ defmodule TwitchAPI.Auth do
     }
 
     Req.get(@base_url <> "/oauth2/validate", headers: headers)
+  end
+
+  @doc """
+  Attach a refresh step to requests.
+  """
+  @spec token_refresh_step({Req.Request.t(), Req.Response.t()}) ::
+          {Req.Request.t(), Req.Response.t()}
+  def token_refresh_step({request, %{status: 401} = response}) do
+    auth = Req.Request.get_private(request, :twitch_auth)
+    attempted? = Req.Request.get_private(request, :refresh_attempted?, false)
+
+    cond do
+      !auth ->
+        {request, response}
+
+      !auth.refresh_token ->
+        {request, response}
+
+      attempted? ->
+        {request, response}
+
+      true ->
+        case token_refresh(auth) do
+          {:ok, %{status: 200, body: auth_attrs}} ->
+            auth = merge_string_params(auth, auth_attrs)
+
+            {request, response_or_exception} =
+              request
+              |> Req.Request.put_private(:twitch_auth, auth)
+              |> Req.Request.put_private(:refresh_attempted?, true)
+              |> Req.Request.merge_options(auth: {:bearer, auth.access_token})
+              |> Req.Request.run_request()
+
+            {Req.Request.halt(request), response_or_exception}
+
+          {_ok_error, _resp} ->
+            {request, response}
+        end
+    end
+  end
+
+  def refresh_step({request, response}) do
+    {request, response}
   end
 
   # ----------------------------------------------------------------------------
