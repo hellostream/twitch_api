@@ -20,7 +20,9 @@ defmodule TwitchAPI do
       end
 
   """
+
   alias TwitchAPI.Auth
+  alias TwitchAPI.AuthStore
 
   require Logger
 
@@ -35,15 +37,20 @@ defmodule TwitchAPI do
   NOTE: You probably only want to use this directly if you want to do something
   different than the default.
   """
-  @spec client(Auth.t()) :: Req.Request.t()
+  @spec client(Auth.t() | AuthStore.name()) :: Req.Request.t()
   def client(%Auth{} = auth) do
     headers = %{"client-id" => auth.client_id}
-    auth = auth.access_token && {:bearer, auth.access_token}
+    auth_opts = auth.access_token && {:bearer, auth.access_token}
 
-    Req.new(base_url: @base_url, headers: headers, auth: auth)
+    Req.new(base_url: @base_url, headers: headers, auth: auth_opts)
+    |> Req.Request.register_options([:on_token_refresh, :on_auth_request])
     |> Req.Request.put_private(:twitch_auth, auth)
     |> Req.Request.put_private(:refresh_attempted?, false)
     |> Req.Request.append_response_steps(refresh: &Auth.token_refresh_step/1)
+  end
+
+  def client(auth_store) do
+    AuthStore.get(auth_store) |> client()
   end
 
   # Metaprogramming to generate all the request method functions.
@@ -64,7 +71,7 @@ defmodule TwitchAPI do
     Returns `:ok` or `:error` tuples.
     """
     @spec unquote(method)(
-            auth_or_client :: Auth.t() | Req.Request.t(),
+            auth_or_client :: Auth.t() | AuthStore.name() | Req.Request.t(),
             endpoint :: String.t(),
             opts :: keyword()
           ) ::
@@ -88,7 +95,7 @@ defmodule TwitchAPI do
     Raises on error or unexpected HTTP status.
     """
     @spec unquote(method!)(
-            auth_or_client :: Auth.t() | Req.Request.t(),
+            auth_or_client :: Auth.t() | AuthStore.name() | Req.Request.t(),
             endpoint :: String.t(),
             opts :: keyword()
           ) :: Req.Response.t()
@@ -113,7 +120,7 @@ defmodule TwitchAPI do
   You can start at a cursor if you pass in `:cursor` as one of the `opts`.
   """
   @spec stream!(
-          auth_or_client :: Auth.t() | Req.Request.t(),
+          auth_or_client :: Auth.t() | AuthStore.name() | Req.Request.t(),
           endpoint :: String.t(),
           direction :: :before | :after,
           opts :: keyword()
