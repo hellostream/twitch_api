@@ -17,6 +17,8 @@ defmodule TwitchAPI.Auth do
 
   """
 
+  require Logger
+
   @base_url "https://id.twitch.tv"
 
   @type t :: %__MODULE__{
@@ -54,8 +56,8 @@ defmodule TwitchAPI.Auth do
       %Auth{client_id: "some-client-id", client_secret: "secretssss"}
 
   """
-  @spec new(client_id :: String.t(), client_secret :: String.t()) :: t()
-  def new(client_id, client_secret) when is_binary(client_id) and is_binary(client_secret) do
+  @spec new(client_id :: String.t(), client_secret :: String.t() | nil) :: t()
+  def new(client_id, client_secret) when is_binary(client_id) do
     %__MODULE__{client_id: client_id, client_secret: client_secret}
   end
 
@@ -68,11 +70,44 @@ defmodule TwitchAPI.Auth do
       %Auth{client_id: "some-client-id", client_secret: "secretssss", access_token: "sometokenabc123"}
 
   """
-  @spec new(client_id :: String.t(), client_secret :: String.t(), access_token :: String.t()) ::
+  @spec new(
+          client_id :: String.t(),
+          client_secret :: String.t() | nil,
+          access_token :: String.t() | nil
+        ) ::
           t()
-  def new(client_id, client_secret, access_token)
-      when is_binary(client_id) and is_binary(client_secret) and is_binary(access_token) do
+  def new(client_id, client_secret, access_token) when is_binary(client_id) do
     %__MODULE__{client_id: client_id, client_secret: client_secret, access_token: access_token}
+  end
+
+  @doc """
+  Make a new `Auth` struct with a `client_id`, `client_secret`, `access_token`, and `refresh_token`.
+
+  ## Example
+
+      iex> Auth.new("some-client-id", "secretssss", "sometokenabc123", "somerefreshabc123")
+      %Auth{
+        client_id: "some-client-id",
+        client_secret: "secretssss",
+        access_token: "sometokenabc123",
+        refresh_token: "somerefreshabc123"
+      }
+
+  """
+  @spec new(
+          client_id :: String.t(),
+          client_secret :: String.t() | nil,
+          access_token :: String.t() | nil,
+          refresh_token :: String.t() | nil
+        ) ::
+          t()
+  def new(client_id, client_secret, access_token, refresh_token) when is_binary(client_id) do
+    %__MODULE__{
+      client_id: client_id,
+      client_secret: client_secret,
+      access_token: access_token,
+      refresh_token: refresh_token
+    }
   end
 
   @doc """
@@ -85,8 +120,8 @@ defmodule TwitchAPI.Auth do
       %Auth{client_id: "some-client-id", client_secret: "secretssss"}
 
   """
-  @spec put_client_secret(t(), client_secret :: String.t()) :: t()
-  def put_client_secret(%__MODULE__{} = auth, client_secret) when is_binary(client_secret) do
+  @spec put_client_secret(t(), client_secret :: String.t() | nil) :: t()
+  def put_client_secret(%__MODULE__{} = auth, client_secret) do
     struct(auth, %{client_secret: client_secret})
   end
 
@@ -100,8 +135,8 @@ defmodule TwitchAPI.Auth do
       %Auth{client_id: "some-client-id", access_token: "abc123"}
 
   """
-  @spec put_access_token(t(), access_token :: String.t()) :: t()
-  def put_access_token(%__MODULE__{} = auth, access_token) when is_binary(access_token) do
+  @spec put_access_token(t(), access_token :: String.t() | nil) :: t()
+  def put_access_token(%__MODULE__{} = auth, access_token) do
     struct(auth, %{access_token: access_token})
   end
 
@@ -270,28 +305,50 @@ defmodule TwitchAPI.Auth do
   end
 
   @doc """
-  Attach a refresh step to requests.
+  A response step (`Req.Step`) for refreshing tokens and re-attempting a request
+  when authentication fails.
+
+  If the `Auth` struct has a `client_secret` and `refresh_token` and has not
+  already been attempted, then we will attempt to refresh the token.
+
+  ## Example
+
+    Req.new(url: "https://api.twitch.com/helix/users")
+    |> Req.Request.append_response_steps(token_refresh: &TwitchAPI.Auth.token_refresh_step/1)
+
   """
   @spec token_refresh_step({Req.Request.t(), Req.Response.t()}) ::
           {Req.Request.t(), Req.Response.t()}
+  def token_refresh_step(request_response)
+
   def token_refresh_step({request, %{status: 401} = response}) do
+    Logger.debug("[TwitchAPI] 401 unauthorized #{inspect(response)}")
     auth = Req.Request.get_private(request, :twitch_auth)
-    attempted? = Req.Request.get_private(request, :refresh_attempted?, false)
+    attempted? = Req.Request.get_private(request, :refresh_attempted?)
 
     cond do
       !auth ->
+        Logger.warning("[TwitchAPI] Auth struct required to refresh access token")
+        {request, response}
+
+      !auth.client_secret ->
+        Logger.warning("[TwitchAPI] Auth requires :client_secret to refresh access token")
         {request, response}
 
       !auth.refresh_token ->
+        Logger.warning("[TwitchAPI] Auth requires :refresh_token to refresh access token")
         {request, response}
 
       attempted? ->
+        Logger.warning("[TwitchAPI] already attempted to refresh access token")
         {request, response}
 
       true ->
         case token_refresh(auth) do
           {:ok, %{status: 200, body: auth_attrs}} ->
+            Logger.info("[TwitchAPI] refreshed token")
             auth = merge_string_params(auth, auth_attrs)
+            on_refresh = Req.Request.get_option(request, :on_token_refresh)
 
             {request, response_or_exception} =
               request
@@ -300,9 +357,15 @@ defmodule TwitchAPI.Auth do
               |> Req.Request.merge_options(auth: {:bearer, auth.access_token})
               |> Req.Request.run_request()
 
+            if is_function(on_refresh) do
+              on_refresh.(auth)
+            end
+
             {Req.Request.halt(request), response_or_exception}
 
-          {_ok_error, _resp} ->
+          {_ok_error, resp} ->
+            Logger.error("[TwitchAPI] failed to refresh access token")
+            Logger.debug(inspect(resp, pretty: true))
             {request, response}
         end
     end
@@ -325,6 +388,6 @@ defmodule TwitchAPI.Auth do
   defp expires_in_to_datetime(nil), do: nil
 
   defp expires_in_to_datetime(expires_in) when is_integer(expires_in) do
-    DateTime.utc_now() |> DateTime.add(expires_in, :seconds)
+    DateTime.utc_now() |> DateTime.add(expires_in, :second)
   end
 end
