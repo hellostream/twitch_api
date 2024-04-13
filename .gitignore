@@ -25,5 +25,4 @@ twitch_api-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
-.twitch.json
-
+.twitch*

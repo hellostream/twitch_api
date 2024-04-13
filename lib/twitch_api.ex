@@ -22,6 +22,7 @@ defmodule TwitchAPI do
   """
 
   alias TwitchAPI.Auth
+  alias TwitchAPI.AuthError
   alias TwitchAPI.AuthStore
 
   require Logger
@@ -50,7 +51,14 @@ defmodule TwitchAPI do
   end
 
   def client(auth_store) do
-    AuthStore.get(auth_store) |> client()
+    auth =
+      with nil <- AuthStore.get(auth_store) do
+        raise AuthError, message: "no auth in auth store"
+      end
+
+    auth
+    |> client()
+    |> Req.Request.put_private(:auth_store, auth_store)
   end
 
   # Metaprogramming to generate all the request method functions.
