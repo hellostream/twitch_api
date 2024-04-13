@@ -17,6 +17,8 @@ defmodule TwitchAPI.Auth do
 
   """
 
+  alias TwitchAPI.AuthStore
+
   require Logger
 
   @base_url "https://id.twitch.tv"
@@ -324,7 +326,14 @@ defmodule TwitchAPI.Auth do
   def token_refresh_step({request, %{status: 401} = response}) do
     Logger.debug("[TwitchAPI] 401 unauthorized #{inspect(response)}")
     auth = Req.Request.get_private(request, :twitch_auth)
+    auth_store = Req.Request.get_private(request, :auth_store)
     attempted? = Req.Request.get_private(request, :refresh_attempted?)
+
+    auth =
+      case auth_store do
+        nil -> auth
+        auth_store -> AuthStore.get(auth_store)
+      end
 
     cond do
       !auth ->
@@ -349,6 +358,8 @@ defmodule TwitchAPI.Auth do
             Logger.info("[TwitchAPI] refreshed token")
             auth = merge_string_params(auth, auth_attrs)
             on_refresh = Req.Request.get_option(request, :on_token_refresh)
+
+            auth_store && AuthStore.put(auth_store, auth)
 
             {request, response_or_exception} =
               request
@@ -376,7 +387,7 @@ defmodule TwitchAPI.Auth do
   end
 
   # ----------------------------------------------------------------------------
-  # Helpers
+  # Private API
   # ----------------------------------------------------------------------------
 
   @spec client() :: Req.Request.t()
