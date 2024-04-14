@@ -26,6 +26,7 @@ defmodule TwitchAPI.AuthStore do
   use GenServer
 
   alias TwitchAPI.Auth
+  alias TwitchAPI.AuthError
 
   require Logger
 
@@ -45,12 +46,22 @@ defmodule TwitchAPI.AuthStore do
           | module()
 
   @type option ::
-          {:auth, Auth.t()}
+          {:auth, Auth.t() | nil}
           | {:name, name()}
           | {:callback_module, module() | nil}
           | {:on_load, auth_store_callback() | nil}
           | {:on_put, auth_store_callback() | nil}
           | {:on_terminate, auth_store_callback() | nil}
+
+  @opaque state :: %{
+            auth: Auth.t(),
+            name: name(),
+            callback_module: module(),
+            on_put: auth_store_callback(),
+            on_terminate: auth_store_callback(),
+            refresh_timer: reference() | nil,
+            validate_timer: reference() | nil
+          }
 
   @validate_interval :timer.hours(1)
 
@@ -60,14 +71,14 @@ defmodule TwitchAPI.AuthStore do
   @spec start_link([option]) :: GenServer.on_start()
   def start_link(opts) do
     name = Keyword.get(opts, :name) || __MODULE__
-    Logger.debug("[TwitchAPI.AuthStore] starting #{name}...")
+    Logger.info("[TwitchAPI.AuthStore] starting #{name}...")
     GenServer.start_link(__MODULE__, opts, name: via(name))
   end
 
   @doc """
   Get the auth from the auth store.
   """
-  @spec get(name()) :: Auth.t() | nil
+  @spec get(name()) :: Auth.t()
   def get(name) when is_atom(name) or is_pid(name) do
     GenServer.call(name, :get)
   end
@@ -86,17 +97,18 @@ defmodule TwitchAPI.AuthStore do
 
   @impl GenServer
   def init(opts) do
-    auth = Keyword.get(opts, :auth)
     name = Keyword.get(opts, :name) || __MODULE__
     callback_module = Keyword.get(opts, :callback_module) || TwitchAPI.AuthNoop
     on_load = Keyword.get(opts, :on_load) || callback_module
     on_put = Keyword.get(opts, :on_put) || callback_module
     on_terminate = Keyword.get(opts, :on_terminate) || callback_module
 
+    auth = Keyword.get(opts, :auth)
+    auth = on_callback(:load, on_load, name, auth) || raise "no auth after on_load"
+
     state = %{
       auth: auth,
       name: name,
-      on_load: on_load,
       on_put: on_put,
       on_terminate: on_terminate,
       refresh_timer: nil,
@@ -105,36 +117,26 @@ defmodule TwitchAPI.AuthStore do
 
     Process.flag(:trap_exit, true)
 
-    {:ok, state, {:continue, :load_token}}
-  end
-
-  @impl GenServer
-  def handle_continue(:load_token, state) do
-    case on_callback(:load, state.on_load, state.name, state.auth) do
-      nil ->
-        {:noreply, state}
-
-      auth ->
-        # Check if the access token is expired or expires within 10 minutes.
-        if DateTime.diff(auth.expires_at, DateTime.utc_now(), :minute) <= 10 do
-          {:noreply, %{state | auth: auth}, {:continue, :refresh}}
-        else
-          refresh_timer = schedule_refresh(auth, nil)
-          {:noreply, %{state | auth: auth, refresh_timer: refresh_timer}, {:continue, :validate}}
-        end
+    # Check if the access token is expired or expires within 10 minutes.
+    if DateTime.diff(auth.expires_at, DateTime.utc_now(), :minute) <= 10 do
+      {:ok, %{state | auth: auth}, {:continue, :refresh}}
+    else
+      refresh_timer = schedule_refresh(auth, nil)
+      state = %{state | auth: auth, refresh_timer: refresh_timer}
+      {:ok, state, {:continue, :validate}}
     end
   end
 
+  @impl true
   def handle_continue(:refresh, state) do
-    case refresh(state.auth) do
-      {:ok, auth} -> {:noreply, auth_updated(auth, state)}
-      :error -> {:stop, {:shutdown, :invalid_token}, state}
-    end
+    auth = refresh(state.auth)
+    state = auth_updated(auth, state)
+    {:noreply, state}
   end
 
   def handle_continue(:validate, state) do
     case validate(state.auth) do
-      {:ok, _auth} ->
+      :ok ->
         validate_timer = schedule_validate(nil)
         {:noreply, %{state | validate_timer: validate_timer}}
 
@@ -156,25 +158,22 @@ defmodule TwitchAPI.AuthStore do
 
   @impl GenServer
   def handle_info(:validate, state) do
-    case validate_or_refresh(state.auth) do
-      {:ok, auth} ->
-        state = auth_updated(auth, state)
+    case validate(state.auth) do
+      :ok ->
+        schedule_validate(state.validate_timer)
         {:noreply, state}
 
       :error ->
-        {:stop, {:shutdown, :invalid_token}, state}
+        auth = refresh(state.auth)
+        state = auth_updated(auth, state)
+        {:noreply, state}
     end
   end
 
   def handle_info(:refresh, state) do
-    case refresh(state.auth) do
-      {:ok, auth} ->
-        state = auth_updated(auth, state)
-        {:noreply, state}
-
-      :error ->
-        {:stop, {:shutdown, :invalid_token}, state}
-    end
+    auth = refresh(state.auth)
+    state = auth_updated(auth, state)
+    {:noreply, state}
   end
 
   @impl GenServer
@@ -190,25 +189,8 @@ defmodule TwitchAPI.AuthStore do
     {:via, Registry, {TwitchAPI.AuthRegistry, name}}
   end
 
-  defp schedule_refresh(%Auth{expires_at: expires_at}, current_timer) do
-    current_timer && Process.cancel_timer(current_timer, async: true, info: false)
-    expires_in_ms = DateTime.diff(expires_at, DateTime.utc_now(), :millisecond)
-    refresh_in_ms = expires_in_ms - :timer.minutes(10)
-    Process.send_after(self(), :refresh, refresh_in_ms)
-  end
-
-  defp schedule_validate(current_timer) do
-    current_timer && Process.cancel_timer(current_timer, async: true, info: false)
-    Process.send_after(self(), :validate, @validate_interval)
-  end
-
-  defp auth_updated(auth, state) do
-    auth = on_callback(:put, state.on_put, state.name, auth)
-    refresh_timer = schedule_refresh(auth, state.refresh_timer)
-    validate_timer = schedule_validate(state.validate_timer)
-    %{state | auth: auth, refresh_timer: refresh_timer, validate_timer: validate_timer}
-  end
-
+  # Dispatch the callback fucntion depending on how it is provided (MFA,
+  # function, module).
   defp on_callback(callback_name, callback, name, auth) do
     case callback do
       module when is_atom(module) ->
@@ -226,34 +208,49 @@ defmodule TwitchAPI.AuthStore do
     end
   end
 
-  defp validate_or_refresh(auth) do
-    with(
-      :error <- validate(auth),
-      {:ok, auth} <- refresh(auth)
-    ) do
-      {:ok, auth}
+  # This should be called everytime the `:auth` is set.
+  defp auth_updated(auth, state) do
+    auth = on_callback(:put, state.on_put, state.name, auth)
+    refresh_timer = schedule_refresh(auth, state.refresh_timer)
+    validate_timer = schedule_validate(state.validate_timer)
+    %{state | auth: auth, refresh_timer: refresh_timer, validate_timer: validate_timer}
+  end
+
+  # Cancel the current `refresh_timer` if it exists and schedule the `:refresh`
+  # for 10 minutes before the current token expires.
+  defp schedule_refresh(%Auth{expires_at: expires_at}, current_timer) do
+    current_timer && Process.cancel_timer(current_timer, async: true, info: false)
+    expires_in_ms = DateTime.diff(expires_at, DateTime.utc_now(), :millisecond)
+    refresh_in_ms = expires_in_ms - :timer.minutes(10)
+    Process.send_after(self(), :refresh, refresh_in_ms)
+  end
+
+  # Cancel the current `validate_timer` if it exists and schedule `:validate`
+  # according to the interval.
+  defp schedule_validate(current_timer) do
+    current_timer && Process.cancel_timer(current_timer, async: true, info: false)
+    Process.send_after(self(), :validate, @validate_interval)
+  end
+
+  defp refresh(auth) do
+    case Auth.token_refresh(auth) do
+      {:ok, %{status: 200, body: auth_attrs}} ->
+        Logger.debug("[TwitchAPI.AuthStore] refreshed token")
+        Auth.merge_string_params(auth, auth_attrs)
+
+      {_ok_error, resp} ->
+        raise AuthError, "failed to refresh token: #{inspect(resp, pretty: true)}"
     end
   end
 
   defp validate(auth) do
-    Logger.debug("[TwitchAPI.AuthStore] validating token")
-
     case Auth.token_validate(auth) do
-      {:ok, %{status: 200}} -> {:ok, auth}
-      {_ok_error, _resp} -> :error
-    end
-  end
+      {:ok, %{status: 200}} ->
+        Logger.debug("[TwitchAPI.AuthStore] validated token")
+        :ok
 
-  defp refresh(auth) do
-    Logger.debug("[TwitchAPI.AuthStore] refreshing token")
-
-    case Auth.token_refresh(auth) do
-      {:ok, %{status: 200, body: auth_attrs}} ->
-        auth = Auth.merge_string_params(auth, auth_attrs)
-        {:ok, auth}
-
-      {_ok_error, resp} ->
-        Logger.error("[TwitchAPI.AuthStore] Failed to refresh token: #{inspect(resp)}")
+      {_ok_error, _resp} ->
+        Logger.debug("[TwitchAPI.AuthStore] token is not valid")
         :error
     end
   end
