@@ -17,8 +17,8 @@ defmodule Mix.Tasks.Twitch.Auth do
   ## Options
 
    * `--output` - Specify how we want to output the token. 
-     Valid values are: `json`, `.env`, `.envrc`, `stdout`, `clipboard`.
-     NOTE: Only `json` and `stdout` are supported currently.
+     Valid values are: `json`, `priv`, `.env`, `.envrc`, `stdout`, `clipboard`.
+     NOTE: Only `priv`, `json`, and `stdout` are supported currently.
    * `--listen-port` - The port that the temporary web server will listen on.
      Defaults to `42069` if not set.
    * `--listen-timeout` - The time in ms that the server waits for a the twitch
@@ -46,9 +46,9 @@ defmodule Mix.Tasks.Twitch.Auth do
 
   @base_url "https://id.twitch.tv/oauth2/authorize"
 
-  @outputs ~w[clipboard .env .envrc json stdout]
+  @outputs ~w[.env .envrc clipboard json priv stdout]
 
-  @default_output "json"
+  @default_output "priv"
 
   @default_listen_port 42069
 
@@ -110,7 +110,8 @@ defmodule Mix.Tasks.Twitch.Auth do
     with(
       {:ok, code} <- wait_for_code(timeout),
       {:ok, token} <- fetch_token(auth, code, redirect_url),
-      :ok <- token_output(output, token)
+      auth <- TwitchAPI.Auth.merge_string_params(auth, token),
+      :ok <- token_output(output, auth)
     ) do
       Mix.shell().info("Finished successfully")
     else
@@ -147,30 +148,36 @@ defmodule Mix.Tasks.Twitch.Auth do
 
   ## Write the token output
 
-  defp token_output("json", token) do
-    expires_at = DateTime.utc_now() |> DateTime.add(token["expires_in"], :second)
-
-    json =
-      token
-      |> Map.put("expires_at", expires_at)
-      |> Map.delete("expires_in")
-      |> Jason.encode!(pretty: true)
-
+  defp token_output("json", auth) do
+    json = Jason.encode!(auth, pretty: true)
     File.write!(".twitch.json", json)
-
     Mix.shell().info("Wrote .twitch.json file")
   end
 
-  defp token_output("stdout", token) do
+  defp token_output("priv", auth) do
+    filename = "auth/.twitch-Elixir.TwitchAPI.AuthStore"
+
+    :hello_twitch_api
+    |> :code.priv_dir()
+    |> Path.join(filename)
+    |> File.write!(:erlang.term_to_binary(auth))
+    |> dbg()
+
+    Mix.shell().info("Wrote #{filename}")
+  end
+
+  defp token_output("stdout", auth) do
     Mix.shell().info("""
     Access token received:
 
-      TWITCH_ACCESS_TOKEN=#{token["access_token"]}
-      TWITCH_REFRESH_TOKEN=#{token["refresh_token"]}
+      TWITCH_ACCESS_TOKEN=#{auth.access_token}
+      TWITCH_REFRESH_TOKEN=#{auth.refresh_token}
+
+    Expires at: #{auth.expires_at}
     """)
   end
 
-  defp token_output(output, _token) do
+  defp token_output(output, _auth) do
     {:error, "unhandled output type #{output}"}
   end
 end
