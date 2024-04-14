@@ -4,16 +4,20 @@ defmodule TwitchAPI.Auth do
 
   Functions for managing your auth and tokens.
 
+  See: https://dev.twitch.tv/docs/authentication/getting-tokens-oauth
+
   ## Notes
 
-   * `Implicit` grant flow gives user access tokens that expire in `14124`
-     seconds (~4 hours).
+   * `Implicit` grant flow gives user access tokens. Expiry: I don't know yet.
 
    * `Client Credentials` grant flow gives app access tokens that expire
      in `5011271` seconds (~58 days).
 
-   * `Authorization Code` Grant flow gives user access tokens that expires
+   * `Authorization Code` grant flow gives user access tokens that expires
      in `14124` seconds (~4 hours).
+
+   * `Device Code` grant flow gives a user access token that expires in
+     `14820` seconds (~4 hours).
 
   """
 
@@ -31,6 +35,7 @@ defmodule TwitchAPI.Auth do
           expires_at: DateTime.t() | nil
         }
 
+  @derive Jason.Encoder
   @derive {Inspect, only: [:client_id, :expires_at]}
   @enforce_keys [:client_id]
   defstruct [:client_id, :client_secret, :access_token, :refresh_token, :expires_at]
