@@ -32,14 +32,11 @@ defmodule TwitchAPI.AuthFile do
       |> filename()
       |> File.write(:erlang.term_to_binary(auth))
 
-    case result do
-      :ok ->
-        auth
-
-      {:error, posix} ->
-        Logger.error("[TwitchAPI.AuthFile] error reading auth: #{posix}")
-        auth
+    with {:error, posix} <- result do
+      Logger.error("[TwitchAPI.AuthFile] error writing auth: #{posix}")
     end
+
+    auth
   end
 
   @impl true
