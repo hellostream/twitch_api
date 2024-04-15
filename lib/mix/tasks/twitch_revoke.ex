@@ -19,6 +19,7 @@ defmodule Mix.Tasks.Twitch.Revoke do
   use Mix.Task
 
   alias TwitchAPI.Auth
+  alias TwitchAPI.AuthClient
 
   @default_json ".twitch.json"
 
@@ -55,7 +56,7 @@ defmodule Mix.Tasks.Twitch.Revoke do
 
     {:ok, _} = Application.ensure_all_started(:req)
 
-    case Auth.token_revoke(auth) do
+    case AuthClient.token_revoke(auth) do
       {:ok, %{status: 200}} ->
         Mix.shell().info("Token revoked")
 

@@ -30,7 +30,8 @@ defmodule TwitchAPI.MixProject do
     [
       {:req, "~> 0.4.11"},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
-      {:bandit, "~> 1.0", runtime: false}
+      {:bandit, "~> 1.0", runtime: false},
+      {:mimic, "~> 1.7", only: :test}
     ]
   end
 

@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Twitch.Auth do
 
   ## Options
 
-   * `--output` - Specify how we want to output the token. 
+   * `--output` - Specify how we want to output the token.
      Valid values are: `json`, `priv`, `.env`, `.envrc`, `stdout`, `clipboard`.
      NOTE: Only `priv`, `json`, and `stdout` are supported currently.
    * `--listen-port` - The port that the temporary web server will listen on.
@@ -134,7 +134,7 @@ defmodule Mix.Tasks.Twitch.Auth do
   end
 
   defp fetch_token(auth, code, redirect_url) do
-    case TwitchAPI.Auth.token_get_from_code(auth, code, redirect_url) do
+    case TwitchAPI.AuthClient.token_get_from_code(auth, code, redirect_url) do
       {:ok, %{status: 200, body: token}} ->
         {:ok, token}
 

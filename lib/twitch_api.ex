@@ -22,7 +22,7 @@ defmodule TwitchAPI do
   """
 
   alias TwitchAPI.Auth
-  alias TwitchAPI.AuthError
+  alias TwitchAPI.AuthClient
   alias TwitchAPI.AuthStore
 
   require Logger
@@ -47,16 +47,12 @@ defmodule TwitchAPI do
     |> Req.Request.register_options([:on_token_refresh, :on_auth_request])
     |> Req.Request.put_private(:twitch_auth, auth)
     |> Req.Request.put_private(:refresh_attempted?, false)
-    |> Req.Request.append_response_steps(refresh: &Auth.token_refresh_step/1)
+    |> Req.Request.append_response_steps(refresh: &AuthClient.token_refresh_step/1)
   end
 
   def client(auth_store) do
-    auth =
-      with nil <- AuthStore.get(auth_store) do
-        raise AuthError, message: "no auth in auth store"
-      end
-
-    auth
+    auth_store
+    |> AuthStore.get()
     |> client()
     |> Req.Request.put_private(:auth_store, auth_store)
   end

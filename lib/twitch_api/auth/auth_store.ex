@@ -26,6 +26,7 @@ defmodule TwitchAPI.AuthStore do
   use GenServer
 
   alias TwitchAPI.Auth
+  alias TwitchAPI.AuthClient
   alias TwitchAPI.AuthError
 
   require Logger
@@ -63,7 +64,12 @@ defmodule TwitchAPI.AuthStore do
             validate_timer: reference() | nil
           }
 
-  @validate_interval :timer.hours(1)
+  @compiled_config Application.compile_env(:hello_twitch_api, __MODULE__, [])
+
+  # Twitch demands that we validate whenever the application boots, and every
+  # hour after that. However, for testing, we want to be able to shorten this.
+  # See: https://dev.twitch.tv/docs/authentication/validate-tokens/
+  @validate_interval Keyword.get(@compiled_config, :validate_interval, :timer.hours(1))
 
   @doc """
   Start the auth store.
@@ -78,17 +84,25 @@ defmodule TwitchAPI.AuthStore do
   @doc """
   Get the auth from the auth store.
   """
-  @spec get(name()) :: Auth.t()
-  def get(name) when is_atom(name) or is_pid(name) do
-    GenServer.call(name, :get)
+  @spec get(name() | pid()) :: Auth.t()
+  def get(pid) when is_pid(pid) do
+    GenServer.call(pid, :get)
+  end
+
+  def get(name) do
+    GenServer.call(via(name), :get)
   end
 
   @doc """
   Put the auth in the auth store.
   """
-  @spec put(name(), Auth.t()) :: :ok
-  def put(name, %Auth{} = auth) when is_atom(name) or is_pid(name) do
-    GenServer.cast(via(name), {:put, name, auth})
+  @spec put(name() | pid(), Auth.t()) :: :ok
+  def put(pid, %Auth{} = auth) when is_pid(pid) do
+    GenServer.call(pid, {:put, auth})
+  end
+
+  def put(name, %Auth{} = auth) do
+    GenServer.call(via(name), {:put, auth})
   end
 
   # ----------------------------------------------------------------------------
@@ -151,7 +165,7 @@ defmodule TwitchAPI.AuthStore do
   end
 
   @impl GenServer
-  def handle_call({:put, _name, auth}, _from, state) do
+  def handle_call({:put, auth}, _from, state) do
     state = auth_updated(auth, state)
     {:reply, :ok, state}
   end
@@ -179,6 +193,7 @@ defmodule TwitchAPI.AuthStore do
   @impl GenServer
   def terminate(_reason, state) do
     on_callback(:terminate, state.on_terminate, state.name, state.auth)
+    :ok
   end
 
   # ----------------------------------------------------------------------------
@@ -233,7 +248,7 @@ defmodule TwitchAPI.AuthStore do
   end
 
   defp refresh(auth) do
-    case Auth.token_refresh(auth) do
+    case AuthClient.token_refresh(auth) do
       {:ok, %{status: 200, body: auth_attrs}} ->
         Logger.debug("[TwitchAPI.AuthStore] refreshed token")
         Auth.merge_string_params(auth, auth_attrs)
@@ -244,7 +259,7 @@ defmodule TwitchAPI.AuthStore do
   end
 
   defp validate(auth) do
-    case Auth.token_validate(auth) do
+    case AuthClient.token_validate(auth) do
       {:ok, %{status: 200}} ->
         Logger.debug("[TwitchAPI.AuthStore] validated token")
         :ok
