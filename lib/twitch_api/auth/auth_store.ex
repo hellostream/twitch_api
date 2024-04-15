@@ -131,7 +131,8 @@ defmodule TwitchAPI.AuthStore do
 
     Process.flag(:trap_exit, true)
 
-    # Check if the access token is expired or expires within 10 minutes.
+    # Check if the access token is expired or expires within 10 minutes, and
+    # refresh if so. Otherwise, schedule a refresh, and validate the token.
     if DateTime.diff(auth.expires_at, DateTime.utc_now(), :minute) <= 10 do
       {:ok, %{state | auth: auth}, {:continue, :refresh}}
     else
