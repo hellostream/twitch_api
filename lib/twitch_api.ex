@@ -27,6 +27,8 @@ defmodule TwitchAPI do
 
   require Logger
 
+  @type auth :: Auth.t() | AuthStore.name() | pid()
+
   @base_url "https://api.twitch.tv/helix"
 
   @doc """
@@ -38,7 +40,7 @@ defmodule TwitchAPI do
   NOTE: You probably only want to use this directly if you want to do something
   different than the default.
   """
-  @spec client(Auth.t() | AuthStore.name()) :: Req.Request.t()
+  @spec client(auth()) :: Req.Request.t()
   def client(%Auth{} = auth) do
     headers = %{"client-id" => auth.client_id}
     auth_opts = auth.access_token && {:bearer, auth.access_token}
@@ -47,7 +49,7 @@ defmodule TwitchAPI do
     |> Req.Request.register_options([:on_token_refresh, :on_auth_request])
     |> Req.Request.put_private(:twitch_auth, auth)
     |> Req.Request.put_private(:refresh_attempted?, false)
-    |> Req.Request.append_response_steps(refresh: &AuthClient.token_refresh_step/1)
+    |> Req.Request.append_response_steps(token_refresh: &AuthClient.token_refresh_step/1)
   end
 
   def client(auth_store) do
@@ -75,23 +77,23 @@ defmodule TwitchAPI do
     Returns `:ok` or `:error` tuples.
     """
     @spec unquote(method)(
-            auth_or_client :: Auth.t() | AuthStore.name() | Req.Request.t(),
+            auth_or_client :: auth() | Req.Request.t(),
             endpoint :: String.t(),
             opts :: keyword()
           ) ::
             {:ok, Req.Response.t()} | {:error, term()}
     def unquote(method)(auth_or_client, endpoint, opts \\ [])
 
-    def unquote(method)(%Auth{} = auth, endpoint, opts) do
-      unquote(method)(client(auth), endpoint, opts)
-    end
-
     def unquote(method)(%Req.Request{} = client, endpoint, opts) do
       {success_code, opts} = Keyword.pop(opts, :success, 200)
 
       client
-      |> Req.unquote(method)([{:url, endpoint} | opts])
+      |> Req.request([{:method, unquote(method)}, {:url, endpoint} | opts])
       |> handle_response(success_code)
+    end
+
+    def unquote(method)(auth_or_store, endpoint, opts) do
+      unquote(method)(client(auth_or_store), endpoint, opts)
     end
 
     @doc """
@@ -99,22 +101,22 @@ defmodule TwitchAPI do
     Raises on error or unexpected HTTP status.
     """
     @spec unquote(method!)(
-            auth_or_client :: Auth.t() | AuthStore.name() | Req.Request.t(),
+            auth_or_client :: auth() | Req.Request.t(),
             endpoint :: String.t(),
             opts :: keyword()
           ) :: Req.Response.t()
     def unquote(method!)(auth_or_client, endpoint, opts \\ [])
 
-    def unquote(method!)(%Auth{} = auth, endpoint, opts) do
-      unquote(method!)(client(auth), endpoint, opts)
-    end
-
     def unquote(method!)(%Req.Request{} = client, endpoint, opts) do
       {success_code, opts} = Keyword.pop(opts, :success, 200)
 
       client
-      |> Req.unquote(method!)([{:url, endpoint} | opts])
+      |> Req.request!([{:method, unquote(method)}, {:url, endpoint} | opts])
       |> handle_response!(success_code)
+    end
+
+    def unquote(method!)(auth_or_store, endpoint, opts) do
+      unquote(method!)(client(auth_or_store), endpoint, opts)
     end
   end
 
@@ -124,7 +126,7 @@ defmodule TwitchAPI do
   You can start at a cursor if you pass in `:cursor` as one of the `opts`.
   """
   @spec stream!(
-          auth_or_client :: Auth.t() | AuthStore.name() | Req.Request.t(),
+          auth_or_client :: auth() | Req.Request.t(),
           endpoint :: String.t(),
           direction :: :before | :after,
           opts :: keyword()
