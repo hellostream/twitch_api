@@ -9,7 +9,7 @@ The package can be installed by adding `hello_twitch_api` to your list of depend
 ```elixir
 def deps do
   [
-    {:hello_twitch_api, "~> 0.4.14"}
+    {:hello_twitch_api, "~> 0.5.0"}
   ]
 end
 ```
