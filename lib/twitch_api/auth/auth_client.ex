@@ -226,7 +226,7 @@ defmodule TwitchAPI.AuthClient do
     end
   end
 
-  def refresh_step({request, response}) do
+  def token_refresh_step({request, response}) do
     {request, response}
   end
 
