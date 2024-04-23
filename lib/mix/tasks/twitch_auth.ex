@@ -161,7 +161,6 @@ defmodule Mix.Tasks.Twitch.Auth do
     |> :code.priv_dir()
     |> Path.join(filename)
     |> File.write!(:erlang.term_to_binary(auth))
-    |> dbg()
 
     Mix.shell().info("Wrote #{filename}")
   end
