@@ -19,6 +19,7 @@ defmodule Mix.Tasks.Twitch.Auth do
    * `--output` - Specify how we want to output the token.
      Valid values are: `json`, `priv`, `.env`, `.envrc`, `stdout`, `clipboard`.
      NOTE: Only `priv`, `json`, and `stdout` are supported currently.
+   * `--name` - The name of the auth_store to use. Defaults to `TwitchAPI.AuthStore` if not set.
    * `--listen-port` - The port that the temporary web server will listen on.
      Defaults to `42069` if not set.
    * `--listen-timeout` - The time in ms that the server waits for a the twitch
@@ -75,6 +76,7 @@ defmodule Mix.Tasks.Twitch.Auth do
     port = opts[:listen_port] || @default_listen_port
     timeout = opts[:listen_timeout] || @default_listen_timeout
     redirect_url = "http://localhost:#{port}/oauth/callback"
+    auth_store = opts[:name]
 
     auth = TwitchAPI.Auth.new(client_id, client_secret)
 
@@ -111,7 +113,7 @@ defmodule Mix.Tasks.Twitch.Auth do
       {:ok, code} <- wait_for_code(timeout),
       {:ok, token} <- fetch_token(auth, code, redirect_url),
       auth <- TwitchAPI.Auth.merge_string_params(auth, token),
-      :ok <- token_output(output, auth)
+      :ok <- token_output(output, auth, auth_store)
     ) do
       Mix.shell().info("Finished successfully")
     else
@@ -148,24 +150,19 @@ defmodule Mix.Tasks.Twitch.Auth do
 
   ## Write the token output
 
-  defp token_output("json", auth) do
+  defp token_output("json", auth, _auth_store) do
     json = Jason.encode!(auth, pretty: true)
     File.write!(".twitch.json", json)
     Mix.shell().info("Wrote .twitch.json file")
   end
 
-  defp token_output("priv", auth) do
-    filename = "auth/.twitch-Elixir.TwitchAPI.AuthStore"
-
-    :hello_twitch_api
-    |> :code.priv_dir()
-    |> Path.join(filename)
-    |> File.write!(:erlang.term_to_binary(auth))
-
-    Mix.shell().info("Wrote #{filename}")
+  defp token_output("priv", auth, auth_store) do
+    name = String.to_atom(auth_store)
+    TwitchAPI.AuthFile.put(name, auth)
+    Mix.shell().info("Wrote to #{TwitchAPI.AuthFile.filename(name)}")
   end
 
-  defp token_output("stdout", auth) do
+  defp token_output("stdout", auth, _auth_name) do
     Mix.shell().info("""
     Access token received:
 
@@ -176,7 +173,7 @@ defmodule Mix.Tasks.Twitch.Auth do
     """)
   end
 
-  defp token_output(output, _auth) do
+  defp token_output(output, _auth, _auth_store) do
     {:error, "unhandled output type #{output}"}
   end
 end

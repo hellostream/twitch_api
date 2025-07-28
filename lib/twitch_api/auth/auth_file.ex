@@ -44,11 +44,16 @@ defmodule TwitchAPI.AuthFile do
     put(name, auth)
   end
 
-  defp filename(name) do
+  @doc """
+  The full filename for auth.
+  """
+  def filename(nil), do: filename(TwitchAPI.AuthStore)
+
+  def filename(name) do
     :code.priv_dir(:hello_twitch_api) |> Path.join("#{@base_filename}#{name}")
   end
 
-  defp filename_json do
+  def filename_json do
     :code.priv_dir(:hello_twitch_api) |> Path.join("auth/.twitch.json")
   end
 
@@ -58,20 +63,14 @@ defmodule TwitchAPI.AuthFile do
         {:ok, :erlang.binary_to_term(data)}
 
       {:error, posix} ->
-        case File.read(filename(TwitchAPI.AuthStore)) do
+        case File.read(filename_json()) do
           {:ok, data} ->
-            {:ok, :erlang.binary_to_term(data)}
+            access_token = Jason.decode!(data)
+            auth = TwitchAPI.Auth.merge_string_params(auth, access_token)
+            {:ok, auth}
 
           {:error, _posix} ->
-            case File.read(filename_json()) do
-              {:ok, data} ->
-                access_token = Jason.decode!(data)
-                auth = TwitchAPI.Auth.merge_string_params(auth, access_token)
-                {:ok, auth}
-
-              {:error, _posix} ->
-                {:error, posix}
-            end
+            {:error, posix}
         end
     end
   end

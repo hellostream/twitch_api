@@ -1,7 +1,7 @@
 defmodule TwitchAPI.MixProject do
   use Mix.Project
 
-  @version "0.5.1"
+  @version "0.5.2"
   @repo_url "https://github.com/hellostream/twitch_api"
 
   def project do
@@ -29,7 +29,7 @@ defmodule TwitchAPI.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:req, "~> 0.4.11"},
+      {:req, "~> 0.4"},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:bandit, "~> 1.0", runtime: false},
       {:mimic, "~> 1.7", only: :test}
