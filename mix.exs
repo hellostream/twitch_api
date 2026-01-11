@@ -1,7 +1,7 @@
 defmodule TwitchAPI.MixProject do
   use Mix.Project
 
-  @version "0.5.2"
+  @version "0.5.3"
   @repo_url "https://github.com/hellostream/twitch_api"
 
   def project do
@@ -43,7 +43,8 @@ defmodule TwitchAPI.MixProject do
   defp package do
     [
       licenses: ["Apache-2.0"],
-      links: %{"GitHub" => @repo_url}
+      links: %{"GitHub" => @repo_url},
+      exclude_patterns: ["priv/auth"]
     ]
   end
 end
